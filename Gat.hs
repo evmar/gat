@@ -2,6 +2,7 @@
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
 import Data.ByteString.Internal (c2w, w2c)
+import Data.Char
 import Data.List
 import Data.Word
 import System.Directory
@@ -41,7 +42,7 @@ objectPath sha1 =
   let (before, after) = splitAt 2 sha1
   in ".git/objects" </> before </> after
 
-data ObjectRef = RefObject SHA1 | RefSymbolic String deriving Show
+data Ref = RefObject SHA1 | RefSymbolic String deriving Show
 
 firstTrue :: [IO (Maybe a)] -> IO (Maybe a)
 firstTrue []     = return Nothing
@@ -51,12 +52,14 @@ firstTrue (x:xs) = do
     Just _ -> return test
     Nothing -> firstTrue xs
 
-revParse :: String -> IO (Maybe ObjectRef)
-revParse rev = do
+revParse :: String -> IO (Either String Ref)
+revParse name = do
   symref <- firstTrue $ map testPath sympaths
   case symref of
-    Just symref -> return (Just (RefSymbolic symref))
-    Nothing -> return Nothing
+    Just symref -> return (Right (RefSymbolic symref))
+    Nothing ->
+      -- XXX fall back on plain sha1.
+      return $ Left ("couldn't parse " ++ name)
   where
     testPath path = do
       ok <- doesFileExist (".git" </> path)
@@ -64,7 +67,7 @@ revParse rev = do
                      else Nothing
     -- List of paths to search from "git help rev-parse".
     prefixes = ["", "refs", "refs/tags", "refs/heads", "refs/remotes"]
-    sympaths = map (</> rev) prefixes ++ ["refs/remotes" </> rev </> "HEAD"]
+    sympaths = map (</> name) prefixes ++ ["refs/remotes" </> name </> "HEAD"]
 
 cmdCat :: SHA1 -> IO ()
 cmdCat sha1 = do
@@ -75,9 +78,32 @@ cmdCat sha1 = do
     Just (objtype, size, content) -> BL.putStr content
     Nothing -> hPutStr stderr "error loading file"
 
+stripTrailingWhitespace :: String -> String
+stripTrailingWhitespace = reverse . (dropWhile isSpace) . reverse
+
+resolveRef :: String -> IO (Maybe SHA1)
+resolveRef symref = do
+  content <- readFile (".git" </> symref)
+  let ref = stripTrailingWhitespace content
+  case stripPrefix "ref: " ref of
+    Just target -> resolveRef target
+    Nothing -> return (Just ref)
+
+cmdRef :: String -> IO ()
+cmdRef name = do
+  ref <- revParse name
+  case ref of
+    Right (RefSymbolic ref) -> do
+      sha1 <- resolveRef ref
+      case sha1 of
+        Just sha1 -> putStrLn sha1
+        Nothing -> hPutStr stderr "couldn't resolve ref"
+    Left err -> hPutStr stderr err
+
 main = do
   args <- getArgs
   --cmdCat (head args)
-  parse <- revParse (head args)
-  print parse
+  --out <- revParse (head args)
+  cmdRef (head args)
+  --print out
 
