@@ -14,6 +14,7 @@ import Text.Printf
 import Codec.Compression.Zlib (decompress)
 
 type SHA1 = String
+type IOE a = ErrorT String IO a
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
@@ -53,14 +54,14 @@ firstTrue (x:xs) = do
     Just _ -> return test
     Nothing -> firstTrue xs
 
-revParse :: String -> IO (Either String Ref)
+revParse :: String -> IOE Ref
 revParse name = do
-  symref <- firstTrue $ map testPath sympaths
+  symref <- liftIO $ firstTrue $ map testPath sympaths
   case symref of
-    Just symref -> return (Right (RefSymbolic symref))
+    Just symref -> return (RefSymbolic symref)
     Nothing ->
       -- XXX check sha1 before returning it.
-      return $ (Right (RefObject name))
+      return (RefObject name)
   where
     testPath path = do
       ok <- doesFileExist (".git" </> path)
@@ -70,14 +71,14 @@ revParse name = do
     prefixes = ["", "refs", "refs/tags", "refs/heads", "refs/remotes"]
     sympaths = map (</> name) prefixes ++ ["refs/remotes" </> name </> "HEAD"]
 
-getObject :: SHA1 -> IO (Either String (BL.ByteString, Int, BL.ByteString))
+getObject :: SHA1 -> IOE (BL.ByteString, Int, BL.ByteString)
 getObject sha1 = do
   let path = objectPath sha1
-  compressed <- BL.readFile path
+  compressed <- liftIO $ BL.readFile path
   let raw = decompress compressed
   case parseHeader raw of
-    Just parts -> return (Right parts)
-    Nothing -> return (Left "error parsing object")
+    Just parts -> return parts
+    Nothing -> throwError "error parsing object"
 
 stripTrailingWhitespace :: String -> String
 stripTrailingWhitespace = reverse . (dropWhile isSpace) . reverse
@@ -90,36 +91,28 @@ resolveRef symref = do
     Just target -> resolveRef target
     Nothing -> return ref  -- XXX check sha1.
 
-cmdRef :: String -> IO ()
+cmdRef :: String -> IOE ()
 cmdRef name = do
-  ref <- revParse name
-  case ref of
-    Right (RefSymbolic ref) -> do
-      sha1 <- resolveRef ref
-      putStrLn sha1
-    Left err -> hPutStr stderr err
+  (RefSymbolic ref) <- revParse name
+  sha1 <- liftIO $ resolveRef ref
+  liftIO $ putStrLn sha1
 
-cmdCat :: SHA1 -> IO ()
+cmdCat :: SHA1 -> IOE ()
 cmdCat name = do
-  res <- runErrorT work
-  case res of
-    Left err -> hPutStr stderr err
-    Right _ -> return ()
-  where
-    work :: ErrorT String IO ()
-    work = do
-      ref <- ErrorT $ revParse name
-      sha1 <- liftIO $ case ref of
-                         RefSymbolic ref -> resolveRef ref
-                         RefObject obj -> return obj
-      (objtype, size, content) <- ErrorT $ getObject sha1
-      liftIO $ BL.putStr content
-
+  ref <- revParse name
+  sha1 <- liftIO $ case ref of
+                     RefSymbolic ref -> resolveRef ref
+                     RefObject obj -> return obj
+  (objtype, size, content) <- getObject sha1
+  liftIO $ BL.putStr content
 
 main = do
   args <- getArgs
   --cmdCat (head args)
   --out <- revParse (head args)
-  cmdCat (head args)
+  res <- runErrorT $ cmdCat (head args)
+  case res of
+    Left err -> hPutStr stderr err
+    Right _ -> return ()
   --print out
 
