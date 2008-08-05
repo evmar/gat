@@ -146,7 +146,7 @@ main = do
       (cmd:args) -> do
         case lookup cmd commands of
           Just cmdfunc -> do
-            res <- runErrorT $ cmdCat args
+            res <- runErrorT $ cmdfunc args
             case res of
               Left err -> do hPutStrLn stderr err; return (ExitFailure 1)
               Right _ -> return ExitSuccess
