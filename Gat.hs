@@ -9,7 +9,9 @@ import Data.Char
 import Data.List
 import Data.Word
 import System.Directory
+import System.Console.GetOpt
 import System.Environment
+import System.Exit
 import System.FilePath
 import System.IO
 import Text.Printf
@@ -114,22 +116,40 @@ cmdRef name = do
   sha1 <- resolveRef ref
   liftIO $ putStrLn sha1
 
-cmdCat :: SHA1 -> IOE ()
-cmdCat name = do
-  ref <- revParse name
-  sha1 <- case ref of
-            RefSymbolic ref -> resolveRef ref
-            RefObject obj -> return obj
-  (objtype, size, content) <- getObject sha1
-  liftIO $ BL.putStr content
+cmdCat :: [String] -> IOE ()
+cmdCat args = do
+  case args of
+    [name] -> do
+      ref <- revParse name
+      sha1 <- case ref of
+                RefSymbolic ref -> resolveRef ref
+                RefObject obj -> return obj
+      (objtype, size, content) <- getObject sha1
+      liftIO $ BL.putStr content
+    _ -> throwError "'cat' takes one argument"
+
+commands = [
+    ("cat", cmdCat)
+  ]
+
+usage message = do
+  hPutStrLn stderr $ "Error: " ++ message ++ "."
+  hPutStrLn stderr $ "Commands:"
+  forM_ commands $ \(name, _) ->
+    hPutStrLn stderr $ "  " ++ name
+  return (ExitFailure 1)
 
 main = do
-  args <- getArgs
-  --cmdCat (head args)
-  --out <- revParse (head args)
-  res <- runErrorT $ cmdCat (head args)
-  case res of
-    Left err -> hPutStr stderr err
-    Right _ -> return ()
-  --print out
-
+  argv <- getArgs
+  exit <- do
+    case argv of
+      (cmd:args) -> do
+        case lookup cmd commands of
+          Just cmdfunc -> do
+            res <- runErrorT $ cmdCat args
+            case res of
+              Left err -> do hPutStrLn stderr err; return (ExitFailure 1)
+              Right _ -> return ExitSuccess
+          _ -> usage $ "unknown command: '" ++ cmd ++ "'"
+      _ -> usage $ "must provide command"
+  exitWith exit
