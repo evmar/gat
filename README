@@ -1,1 +1,27 @@
-README
+Why?
+- To learn how Git works.
+- For fun.
+
+Goals/principles:
+- a Gat tree should always be usable by Git.
+- be comparable, speed-wise, to Git.
+- remove, unify, and simplify the UI; it's ok to be less "powerful" than Git.
+- more options are not always better.
+- it's ok to break backwards UI compatibility for greater consistency.  it's ok
+  to remove features.
+- liberally steal from other, better UIs (in particular darcs).
+
+Ideas:
+- represent the whole index/tree distinction by having a "stage" command,
+  which stages files for commit.  then avoid it as much as possible.
+- make "commit" like "commit -a", while "commit --staged" (or in response to a
+  prompt if "commit" with stated content) like "commit".
+- similarly, "diff" is always "diff HEAD", while "diff --staged" like
+  "diff --cached".
+- eliminate the many modes of reset.  flushing the index is a stage subcommand;
+  resetting the tree is "revert", and fiddling with the branch pointers (reset
+  --soft) is a separate command.
+- figure out a better name / mode of operation for "rebase".  provide a more
+  darcs-like interactive ui.
+- in general, have the -i flag (for commit, stage, rebase) be interactive like
+  darcs.
