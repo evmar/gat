@@ -43,21 +43,28 @@ objectPath sha1 =
 
 data ObjectRef = RefObject SHA1 | RefSymbolic String deriving Show
 
+firstTrue :: [IO (Maybe a)] -> IO (Maybe a)
+firstTrue []     = return Nothing
+firstTrue (x:xs) = do
+  test <- x
+  case test of
+    Just _ -> return test
+    Nothing -> firstTrue xs
+
 revParse :: String -> IO (Maybe ObjectRef)
 revParse rev = do
-  symref <- firstTrue (doesFileExist . (".git" </>)) sympaths
+  symref <- firstTrue $ map testPath sympaths
   case symref of
     Just symref -> return (Just (RefSymbolic symref))
     Nothing -> return Nothing
   where
-    firstTrue :: (a -> IO Bool) -> [a] -> IO (Maybe a)
-    firstTrue test []     = return Nothing
-    firstTrue test (x:xs) = do
-      ok <- test x
-      if ok then return (Just x)
-            else firstTrue test xs
+    testPath path = do
+      ok <- doesFileExist (".git" </> path)
+      return $ if ok then Just path
+                     else Nothing
+    -- List of paths to search from "git help rev-parse".
     prefixes = ["", "refs", "refs/tags", "refs/heads", "refs/remotes"]
-    sympaths = map (</> rev) prefixes
+    sympaths = map (</> rev) prefixes ++ ["refs/remotes" </> rev </> "HEAD"]
 
 cmdCat :: SHA1 -> IO ()
 cmdCat sha1 = do
