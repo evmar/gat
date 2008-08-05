@@ -1,6 +1,7 @@
 
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
+import Control.Monad.Error
 import Data.ByteString.Internal (c2w, w2c)
 import Data.Char
 import Data.List
@@ -58,8 +59,8 @@ revParse name = do
   case symref of
     Just symref -> return (Right (RefSymbolic symref))
     Nothing ->
-      -- XXX fall back on plain sha1.
-      return $ Left ("couldn't parse " ++ name)
+      -- XXX check sha1 before returning it.
+      return $ (Right (RefObject name))
   where
     testPath path = do
       ok <- doesFileExist (".git" </> path)
@@ -69,25 +70,25 @@ revParse name = do
     prefixes = ["", "refs", "refs/tags", "refs/heads", "refs/remotes"]
     sympaths = map (</> name) prefixes ++ ["refs/remotes" </> name </> "HEAD"]
 
-cmdCat :: SHA1 -> IO ()
-cmdCat sha1 = do
+getObject :: SHA1 -> IO (Either String (BL.ByteString, Int, BL.ByteString))
+getObject sha1 = do
   let path = objectPath sha1
   compressed <- BL.readFile path
   let raw = decompress compressed
   case parseHeader raw of
-    Just (objtype, size, content) -> BL.putStr content
-    Nothing -> hPutStr stderr "error loading file"
+    Just parts -> return (Right parts)
+    Nothing -> return (Left "error parsing object")
 
 stripTrailingWhitespace :: String -> String
 stripTrailingWhitespace = reverse . (dropWhile isSpace) . reverse
 
-resolveRef :: String -> IO (Maybe SHA1)
+resolveRef :: String -> IO SHA1
 resolveRef symref = do
   content <- readFile (".git" </> symref)
   let ref = stripTrailingWhitespace content
   case stripPrefix "ref: " ref of
     Just target -> resolveRef target
-    Nothing -> return (Just ref)
+    Nothing -> return ref  -- XXX check sha1.
 
 cmdRef :: String -> IO ()
 cmdRef name = do
@@ -95,15 +96,30 @@ cmdRef name = do
   case ref of
     Right (RefSymbolic ref) -> do
       sha1 <- resolveRef ref
-      case sha1 of
-        Just sha1 -> putStrLn sha1
-        Nothing -> hPutStr stderr "couldn't resolve ref"
+      putStrLn sha1
     Left err -> hPutStr stderr err
+
+cmdCat :: SHA1 -> IO ()
+cmdCat name = do
+  res <- runErrorT work
+  case res of
+    Left err -> hPutStr stderr err
+    Right _ -> return ()
+  where
+    work :: ErrorT String IO ()
+    work = do
+      ref <- ErrorT $ revParse name
+      sha1 <- liftIO $ case ref of
+                         RefSymbolic ref -> resolveRef ref
+                         RefObject obj -> return obj
+      (objtype, size, content) <- ErrorT $ getObject sha1
+      liftIO $ BL.putStr content
+
 
 main = do
   args <- getArgs
   --cmdCat (head args)
   --out <- revParse (head args)
-  cmdRef (head args)
+  cmdCat (head args)
   --print out
 
