@@ -46,6 +46,9 @@ objectPath sha1 =
 
 data Ref = RefObject SHA1 | RefSymbolic String deriving Show
 
+isSHA1 :: String -> Bool
+isSHA1 str = length str == 40 && all isHexDigit str
+
 firstTrue :: [IO (Maybe a)] -> IO (Maybe a)
 firstTrue []     = return Nothing
 firstTrue (x:xs) = do
@@ -59,9 +62,8 @@ revParse name = do
   symref <- liftIO $ firstTrue $ map testPath sympaths
   case symref of
     Just symref -> return (RefSymbolic symref)
-    Nothing ->
-      -- XXX check sha1 before returning it.
-      return (RefObject name)
+    Nothing | isSHA1 name -> return (RefObject name)
+    _ -> throwError $ "couldn't parse ref: " ++ name
   where
     testPath path = do
       ok <- doesFileExist (".git" </> path)
@@ -83,26 +85,27 @@ getObject sha1 = do
 stripTrailingWhitespace :: String -> String
 stripTrailingWhitespace = reverse . (dropWhile isSpace) . reverse
 
-resolveRef :: String -> IO SHA1
+resolveRef :: String -> IOE SHA1
 resolveRef symref = do
-  content <- readFile (".git" </> symref)
+  content <- liftIO $ readFile (".git" </> symref)
   let ref = stripTrailingWhitespace content
   case stripPrefix "ref: " ref of
     Just target -> resolveRef target
-    Nothing -> return ref  -- XXX check sha1.
+    Nothing | isSHA1 ref -> return ref
+    _ -> throwError $ "bad ref: " ++ ref
 
 cmdRef :: String -> IOE ()
 cmdRef name = do
   (RefSymbolic ref) <- revParse name
-  sha1 <- liftIO $ resolveRef ref
+  sha1 <- resolveRef ref
   liftIO $ putStrLn sha1
 
 cmdCat :: SHA1 -> IOE ()
 cmdCat name = do
   ref <- revParse name
-  sha1 <- liftIO $ case ref of
-                     RefSymbolic ref -> resolveRef ref
-                     RefObject obj -> return obj
+  sha1 <- case ref of
+            RefSymbolic ref -> resolveRef ref
+            RefObject obj -> return obj
   (objtype, size, content) <- getObject sha1
   liftIO $ BL.putStr content
 
