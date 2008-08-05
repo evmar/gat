@@ -1,7 +1,9 @@
 
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
+import Control.Monad
 import Control.Monad.Error
+import Data.Bits
 import Data.ByteString.Internal (c2w, w2c)
 import Data.Char
 import Data.List
@@ -76,9 +78,21 @@ revParse name = do
 getObject :: SHA1 -> IOE (BL.ByteString, Int, BL.ByteString)
 getObject sha1 = do
   let path = objectPath sha1
-  compressed <- liftIO $ BL.readFile path
-  let raw = decompress compressed
-  case parseHeader raw of
+  raw <- liftIO $ BL.readFile path
+  -- There is an older format that put info in the first few bytes of the
+  -- file.  Git uses the following check to verify it's not this older format.
+  -- 1) First byte must be 0x78.
+  -- 2) First 16-bit word (big-endian) divisible by 31.
+  -- Grab the bytes as Word16s so the left shift works.
+  let (byte1, byte2) = (fromIntegral $ BL.index raw 0,
+                        fromIntegral $ BL.index raw 1) :: (Word16, Word16)
+  let word = (byte1 `shiftL` 8) + byte2
+  unless (byte1 == 0x78 && word `mod` 31 == 0) $
+    throwError "object appears to be in old loose format"
+  -- The normal format for loose objects is a compressed blob with a textual
+  -- header.
+  let uncompressed = decompress raw
+  case parseHeader uncompressed of
     Just parts -> return parts
     Nothing -> throwError "error parsing object"
 
