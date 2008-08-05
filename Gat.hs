@@ -4,6 +4,7 @@ import qualified Data.ByteString.Char8 as BC
 import Data.ByteString.Internal (c2w, w2c)
 import Data.List
 import Data.Word
+import System.Directory
 import System.Environment
 import System.FilePath
 import System.IO
@@ -40,6 +41,24 @@ objectPath sha1 =
   let (before, after) = splitAt 2 sha1
   in ".git/objects" </> before </> after
 
+data ObjectRef = RefObject SHA1 | RefSymbolic String deriving Show
+
+revParse :: String -> IO (Maybe ObjectRef)
+revParse rev = do
+  symref <- firstTrue (doesFileExist . (".git" </>)) sympaths
+  case symref of
+    Just symref -> return (Just (RefSymbolic symref))
+    Nothing -> return Nothing
+  where
+    firstTrue :: (a -> IO Bool) -> [a] -> IO (Maybe a)
+    firstTrue test []     = return Nothing
+    firstTrue test (x:xs) = do
+      ok <- test x
+      if ok then return (Just x)
+            else firstTrue test xs
+    prefixes = ["", "refs", "refs/tags", "refs/heads", "refs/remotes"]
+    sympaths = map (</> rev) prefixes
+
 cmdCat :: SHA1 -> IO ()
 cmdCat sha1 = do
   let path = objectPath sha1
@@ -51,5 +70,7 @@ cmdCat sha1 = do
 
 main = do
   args <- getArgs
-  cmdCat (head args)
+  --cmdCat (head args)
+  parse <- revParse (head args)
+  print parse
 
