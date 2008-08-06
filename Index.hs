@@ -10,6 +10,7 @@ import Data.Bits
 import Data.Word
 import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
+import System.Posix.Types (EpochTime)
 
 import Shared
 
@@ -46,7 +47,7 @@ many get = do
       return (x:xs)
 
 data Index = Index {
-    in_entries :: [CacheEntry]
+    in_entries :: [IndexEntry]
   , in_tree :: [(Int,Int)]
   } deriving Show
 
@@ -68,23 +69,31 @@ readHeader = do
     fail "bad version"
   return $ fromIntegral entries
 
-data CacheEntry = CacheEntry {
-  -- ctime, mtime
+data IndexEntry = IndexEntry {
+    ie_ctime :: EpochTime
+  , ie_mtime :: EpochTime
   -- dev, ino, mode
   -- uid, gid
-    ce_size :: Int
-  , ce_hash :: Hash
-  , ce_flags :: Word8
-  , ce_name :: String
+  , ie_size :: Int
+  , ie_hash :: Hash
+  , ie_flags :: Word8
+  , ie_name :: String
   } deriving Show
 
---readEntry :: Get (Word32, String, B.ByteString, Word16)
+readCacheTime :: Get EpochTime
+readCacheTime = do
+  sec <- getWord32be
+  nsec <- getWord32be
+  -- It appears nsec is always zero (?!).
+  unless (nsec == 0) $
+    fail "nsec in cache time is non-zero"
+  return (fromIntegral sec)
+
+readEntry :: Get IndexEntry
 readEntry = do
   start <- bytesRead
-  ctime1 <- getWord32be
-  ctime2 <- getWord32be
-  mtime1 <- getWord32be
-  mtime2 <- getWord32be
+  ctime <- readCacheTime
+  mtime <- readCacheTime
   dev  <- getWord32be
   ino  <- getWord32be
   mode <- getWord32be
@@ -108,8 +117,9 @@ readEntry = do
   let padbytes = 8 - ((end - start) `mod` 8)
   skip padbytes
   let name = map w2c $ B.unpack namebytes
-  return $ CacheEntry {
-    ce_size=fromIntegral size, ce_hash=hash, ce_flags=flags, ce_name=name
+  return $ IndexEntry {
+    ie_ctime=ctime, ie_mtime=mtime,
+    ie_size=fromIntegral size, ie_hash=hash, ie_flags=flags, ie_name=name
     }
 
 readExtension = do

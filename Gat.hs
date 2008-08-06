@@ -17,6 +17,7 @@ import System.IO
 import Text.Printf
 import Codec.Compression.Zlib (decompress)
 
+import Diff
 import Index
 import Shared
 
@@ -136,9 +137,16 @@ cmdDumpIndex args = do
   index <- loadIndex
   liftIO $ print index
 
+cmdDiffIndex args = do
+  unless (length args == 0) $
+    throwError "'dump-index' takes no arguments"
+  index <- loadIndex
+  diffAgainstIndex index
+
 commands = [
     ("cat", cmdCat)
   , ("dump-index", cmdDumpIndex)
+  , ("diff-index", cmdDiffIndex)
   ]
 
 usage message = do
