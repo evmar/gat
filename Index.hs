@@ -1,7 +1,8 @@
 
 import Control.Monad
 import qualified Data.ByteString as B
-import Data.ByteString.Internal (w2c)
+import qualified Data.ByteString.Char8 as B8
+import Data.ByteString.Internal (c2w, w2c)
 import Data.Binary.Strict.Get
 import Data.Bits
 import Data.Word
@@ -12,13 +13,17 @@ asHex :: B.ByteString -> String
 asHex = concatMap hex . B.unpack where
   hex c = printf "%02x" (c :: Word8)
 
-readHeader :: Get (Word32, Word32, Word32)
+readHeader :: Get Int
 readHeader = do
   let cache_signature = 0x44495243  -- "DIRC"
   signature <- getWord32be
   version   <- getWord32be
   entries   <- getWord32be
-  return (signature, version, entries)
+  unless (signature == cache_signature) $
+    fail "bad signature"
+  unless (version == 2) $
+    fail "bad version"
+  return $ fromIntegral entries
 
 data CacheEntry = CacheEntry {
   -- ctime, mtime
@@ -65,8 +70,27 @@ readExtension = do
   let ext_tree = 0x54524545  -- "TREE"
   name <- getWord32be
   size <- getWord32be
-  body <- getByteString (fromIntegral size)
+  unless (name == ext_tree) $ fail "expected TREE in extension"
+  body <- readTree  -- XXX should be limited to end of extension, not input.
   return (name, size, body)
+
+readInt :: B.ByteString -> Int
+readInt str =
+  case B8.readInt $ B8.pack $ map w2c $ B.unpack str of
+    Just (int, _) -> int
+    Nothing -> 0  -- XXX should we do something smarter here?
+
+readStringTo :: Word8 -> Get B.ByteString
+readStringTo stop = do
+  text <- spanOf (/= stop)
+  skip 1
+  return text
+
+readTree = do
+  readStringTo 0
+  entrycountstr <- readStringTo (c2w ' ')
+  subtreecountstr <- readStringTo (c2w '\n')
+  return (readInt entrycountstr, readInt subtreecountstr)
 
 -- |Like parsec's @many@: repeats a Get until the end of the input.
 many :: Get a -> Get [a]
@@ -83,9 +107,9 @@ main = do
   str <- mmapFileByteString ".git/index" Nothing
   let raw = B.take (B.length str - 20) str  -- sha1
   let x = flip runGet raw $ do
-            h@(_,_,len) <- readHeader
-            entries <- sequence (replicate (fromIntegral len) readEntry)
+            entrycount <- readHeader
+            entries <- sequence (replicate entrycount readEntry)
             ext <- many readExtension
-            return (h, entries, ext)
+            return (entries, ext)
   print x
 
