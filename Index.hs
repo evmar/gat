@@ -61,11 +61,31 @@ readEntry = do
   let name = map w2c $ B.unpack namebytes
   return (size, asHex hash, name, flags)
 
+readExtension = do
+  let ext_tree = 0x54524545  -- "TREE"
+  name <- getWord32be
+  size <- getWord32be
+  body <- getByteString (fromIntegral size)
+  return (name, size, body)
+
+-- |Like parsec's @many@: repeats a Get until the end of the input.
+many :: Get a -> Get [a]
+many get = do
+  done <- isEmpty
+  if done
+    then return []
+    else do
+      x <- get
+      xs <- many get
+      return (x:xs)
+
 main = do
   str <- mmapFileByteString ".git/index" Nothing
-  let x = flip runGet str $ do
+  let raw = B.take (B.length str - 20) str  -- sha1
+  let x = flip runGet raw $ do
             h@(_,_,len) <- readHeader
             entries <- sequence (replicate (fromIntegral len) readEntry)
-            return (h, entries)
+            ext <- many readExtension
+            return (h, entries, ext)
   print x
 
