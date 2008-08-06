@@ -17,8 +17,10 @@ import System.IO
 import Text.Printf
 import Codec.Compression.Zlib (decompress)
 
+import Index
+import Shared
+
 type SHA1 = String
-type IOE a = ErrorT String IO a
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
@@ -128,8 +130,15 @@ cmdCat args = do
       liftIO $ BL.putStr content
     _ -> throwError "'cat' takes one argument"
 
+cmdDumpIndex args = do
+  unless (length args == 0) $
+    throwError "'dump-index' takes no arguments"
+  index <- loadIndex
+  liftIO $ print index
+
 commands = [
     ("cat", cmdCat)
+  , ("dump-index", cmdDumpIndex)
   ]
 
 usage message = do

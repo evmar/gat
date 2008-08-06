@@ -1,5 +1,7 @@
+module Index where
 
 import Control.Monad
+import Control.Monad.Error
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import Data.ByteString.Internal (c2w, w2c)
@@ -8,6 +10,8 @@ import Data.Bits
 import Data.Word
 import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
+
+import Shared
 
 newtype Hash = Hash B.ByteString
 
@@ -41,11 +45,16 @@ many get = do
       xs <- many get
       return (x:xs)
 
+data Index = Index {
+    in_entries :: [CacheEntry]
+  , in_tree :: [(Int,Int)]
+  } deriving Show
+
 readIndex = do
   entrycount <- readHeader
   entries <- sequence (replicate entrycount readEntry)
-  ext <- many readExtension
-  return (entries, ext)
+  exts <- many readExtension
+  return $ Index { in_entries=entries, in_tree=exts }
 
 readHeader :: Get Int
 readHeader = do
@@ -65,7 +74,7 @@ data CacheEntry = CacheEntry {
   -- uid, gid
     ce_size :: Int
   , ce_hash :: Hash
-  --, ce_flags :: Word8
+  , ce_flags :: Word8
   , ce_name :: String
   } deriving Show
 
@@ -83,13 +92,15 @@ readEntry = do
   gid  <- getWord32be
   size <- getWord32be
   hash <- liftM Hash $ getByteString 20
-  flags <- getWord16be
+  flagsword <- getWord16be
   let namemask = 0xFFF
-  let namelen = flags .&. namemask
+  let namelen = flagsword .&. namemask
   namebytes <-
     if namelen == namemask
       then fail "long name in index"
       else getByteString (fromIntegral namelen)
+  -- TODO: parse flags.
+  let flags = fromIntegral $ flagsword `shiftR` 12
   end <- bytesRead
   -- Need to read remaining pad bytes.
   --   (offsetof(struct cache_entry,name) + (len) + 8) & ~7
@@ -98,7 +109,7 @@ readEntry = do
   skip padbytes
   let name = map w2c $ B.unpack namebytes
   return $ CacheEntry {
-    ce_size=fromIntegral size, ce_hash=hash, ce_name=name
+    ce_size=fromIntegral size, ce_hash=hash, ce_flags=flags, ce_name=name
     }
 
 readExtension = do
@@ -107,17 +118,25 @@ readExtension = do
   size <- getWord32be
   unless (name == ext_tree) $ fail "expected TREE in extension"
   body <- readTree  -- XXX should be limited to end of extension, not input.
-  return (name, size, body)
+  return body
 
 readTree = do
-  readStringTo 0
+  readStringTo 0  -- Skip initial NUL-terminated string.
+  -- "%d %d\n" % (entrycount, subtreecount)
   entrycountstr <- readStringTo (c2w ' ')
   subtreecountstr <- readStringTo (c2w '\n')
+  unless (readInt entrycountstr == -1 && readInt subtreecountstr == 0) $
+    fail "tree had unhandled values"
+  --forM [0..readInt subtreecountstr] $ do
+  --  readTree
   return (readInt entrycountstr, readInt subtreecountstr)
 
-main = do
-  str <- mmapFileByteString ".git/index" Nothing
-  let raw = B.take (B.length str - 20) str  -- sha1
-  let x = runGet readIndex raw
-  print x
-
+loadIndex :: IOE Index
+loadIndex = do
+  mmap <- liftIO $ mmapFileByteString ".git/index" Nothing
+  -- Last 20 bytes are SHA1.
+  let raw = B.take (B.length mmap - 20) mmap
+  let (result, rest) = runGet readIndex raw
+  unless (B.length rest == 0) $
+    throwError "index had leftover unparsed data"
+  ErrorT (return result)
