@@ -9,9 +9,43 @@ import Data.Word
 import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
 
+newtype Hash = Hash B.ByteString
+
+instance Show Hash where
+  show (Hash bs) = asHex bs
+
 asHex :: B.ByteString -> String
 asHex = concatMap hex . B.unpack where
   hex c = printf "%02x" (c :: Word8)
+
+readInt :: B.ByteString -> Int
+readInt str =
+  case B8.readInt $ B8.pack $ map w2c $ B.unpack str of
+    Just (int, _) -> int
+    Nothing -> 0  -- XXX should we do something smarter here?
+
+readStringTo :: Word8 -> Get B.ByteString
+readStringTo stop = do
+  text <- spanOf (/= stop)
+  skip 1
+  return text
+
+-- |Like parsec's @many@: repeats a Get until the end of the input.
+many :: Get a -> Get [a]
+many get = do
+  done <- isEmpty
+  if done
+    then return []
+    else do
+      x <- get
+      xs <- many get
+      return (x:xs)
+
+readIndex = do
+  entrycount <- readHeader
+  entries <- sequence (replicate entrycount readEntry)
+  ext <- many readExtension
+  return (entries, ext)
 
 readHeader :: Get Int
 readHeader = do
@@ -30,14 +64,13 @@ data CacheEntry = CacheEntry {
   -- dev, ino, mode
   -- uid, gid
     ce_size :: Int
-  , ce_hash :: String
-  , ce_flags :: Word8
+  , ce_hash :: Hash
+  --, ce_flags :: Word8
   , ce_name :: String
-  }
+  } deriving Show
 
 --readEntry :: Get (Word32, String, B.ByteString, Word16)
 readEntry = do
-  let entrybasesize = 8 + 8 + 6*4 + 20 + 2
   start <- bytesRead
   ctime1 <- getWord32be
   ctime2 <- getWord32be
@@ -49,7 +82,7 @@ readEntry = do
   uid  <- getWord32be
   gid  <- getWord32be
   size <- getWord32be
-  hash <- getByteString 20
+  hash <- liftM Hash $ getByteString 20
   flags <- getWord16be
   let namemask = 0xFFF
   let namelen = flags .&. namemask
@@ -64,7 +97,9 @@ readEntry = do
   let padbytes = 8 - ((end - start) `mod` 8)
   skip padbytes
   let name = map w2c $ B.unpack namebytes
-  return (size, asHex hash, name, flags)
+  return $ CacheEntry {
+    ce_size=fromIntegral size, ce_hash=hash, ce_name=name
+    }
 
 readExtension = do
   let ext_tree = 0x54524545  -- "TREE"
@@ -74,42 +109,15 @@ readExtension = do
   body <- readTree  -- XXX should be limited to end of extension, not input.
   return (name, size, body)
 
-readInt :: B.ByteString -> Int
-readInt str =
-  case B8.readInt $ B8.pack $ map w2c $ B.unpack str of
-    Just (int, _) -> int
-    Nothing -> 0  -- XXX should we do something smarter here?
-
-readStringTo :: Word8 -> Get B.ByteString
-readStringTo stop = do
-  text <- spanOf (/= stop)
-  skip 1
-  return text
-
 readTree = do
   readStringTo 0
   entrycountstr <- readStringTo (c2w ' ')
   subtreecountstr <- readStringTo (c2w '\n')
   return (readInt entrycountstr, readInt subtreecountstr)
 
--- |Like parsec's @many@: repeats a Get until the end of the input.
-many :: Get a -> Get [a]
-many get = do
-  done <- isEmpty
-  if done
-    then return []
-    else do
-      x <- get
-      xs <- many get
-      return (x:xs)
-
 main = do
   str <- mmapFileByteString ".git/index" Nothing
   let raw = B.take (B.length str - 20) str  -- sha1
-  let x = flip runGet raw $ do
-            entrycount <- readHeader
-            entries <- sequence (replicate entrycount readEntry)
-            ext <- many readExtension
-            return (entries, ext)
+  let x = runGet readIndex raw
   print x
 
