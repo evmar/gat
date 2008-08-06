@@ -88,7 +88,7 @@ readEntry = do
   let namelen = flags .&. namemask
   namebytes <-
     if namelen == namemask
-      then return $ B.pack [1]  -- XXX handle long names: more than 12 bits.
+      then fail "long name in index"
       else getByteString (fromIntegral namelen)
   end <- bytesRead
   -- Need to read remaining pad bytes.
