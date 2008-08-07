@@ -4,6 +4,7 @@ import Control.Monad
 import Control.Monad.Error
 import Data.Maybe
 import Text.Printf
+import System.Directory
 import System.Exit
 import System.IO
 import System.Posix.Files
@@ -22,7 +23,9 @@ statDiffers entry stat =
         ]
   in basic_change
 
-data DiffEntry = DiffEntry (Maybe Hash) (Maybe Hash) FilePath deriving Show
+data DiffItem = GitItem Hash | TreeItem FilePath (Maybe Hash) deriving Show
+data DiffEntry = DiffEntry DiffItem DiffItem deriving Show
+
 diffAgainstIndex :: Index -> IOE ()
 diffAgainstIndex index = do
   allpairs <- forM (in_entries index) $ \entry -> do
@@ -31,7 +34,7 @@ diffAgainstIndex index = do
     let changed = statDiffers entry stat
     liftIO $ print (ie_name entry, changed)
     if changed
-      then return $ Just $ DiffEntry (Just (ie_hash entry)) Nothing (ie_name entry)
+      then return $ Just $ DiffEntry (GitItem (ie_hash entry)) (TreeItem (ie_name entry) Nothing)
       else return Nothing
   let pairs = catMaybes allpairs
   -- Here, git does a bunch of filtering/munging of the list of diffs to
@@ -60,19 +63,44 @@ hashFile path = do
 
 -- diff.c:2730
 diffPair :: DiffEntry -> IOE String
-diffPair (DiffEntry mhasha mhashb path) = do
-  -- test if they're directories and skip
-  hasha <- hashIfNecessary mhasha
-  hashb <- hashIfNecessary mhashb
+diffPair (DiffEntry item1 item2) = do
+  -- XXX test if they're directories and skip
+  (item1, hash1) <- itemWithHash item1
+  (item2, hash2) <- itemWithHash item2
   let mode = 0 :: Int  -- FIXME
-  if hasha /= hashb
-    then liftIO $ printf "index %s..%s %06o\n" (shortHash hasha) (shortHash hashb) mode
-    else return ()
+  when (hash1 /= hash2) $ do
+    liftIO $ printf "index %s..%s %06o\n" (shortHash hash1) (shortHash hash2) mode
+    withItemPath item1 $ \path1 -> do
+    withItemPath item2 $ \path2 -> do
+      exit <- liftIO $ do
+        pid <- runCommand ("diff -u " ++ path1 ++ " " ++ path2)
+        waitForProcess pid
+      case exit of
+        ExitSuccess -> return ()
+        ExitFailure 1 -> return ()  -- diff returns this?
+        ExitFailure n -> throwError $ printf "diff failed: %d" n
   return ""
 
   where
     shortHash :: Hash -> String
     shortHash (Hash bs) = take 7 $ asHex bs
-    hashIfNecessary (Just hash) = return hash
-    hashIfNecessary Nothing     = hashFile path
 
+    itemWithHash :: DiffItem -> IOE (DiffItem, Hash)
+    itemWithHash item@(GitItem hash) = return (item, hash)
+    itemWithHash item@(TreeItem path (Just hash)) = return (item, hash)
+    itemWithHash (TreeItem path Nothing) = do
+      hash <- hashFile path
+      let item = TreeItem path (Just hash)
+      return (item, hash)
+
+    withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
+    withItemPath (GitItem hash) use = do
+      path <- liftIO $ do
+        (path, handle) <- openBinaryTempFile "/tmp" "gat-diff."
+        hPutStrLn handle "temp junk"
+        hClose handle
+        return path
+      result <- use path  -- XXX catch error
+      liftIO $ removeFile path
+      return result
+    withItemPath (TreeItem path _) use = use path
