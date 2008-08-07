@@ -17,6 +17,11 @@ import Index
 import ObjectStore
 import Shared
 
+-- One half of a diff: a thing to be diffed.
+data DiffItem = GitItem Hash | TreeItem FilePath (Maybe Hash) deriving Show
+
+-- |Compare a cached index info against the result of stat().
+-- Returns True if we think they differ.
 statDiffers :: IndexEntry -> FileStatus -> Bool
 statDiffers entry stat =
   -- XXX check all the fields on this sucker, read-cache.c:202
@@ -27,9 +32,7 @@ statDiffers entry stat =
         ]
   in basic_change
 
-data DiffItem = GitItem Hash | TreeItem FilePath (Maybe Hash) deriving Show
-data DiffEntry = DiffEntry DiffItem DiffItem deriving Show
-
+-- |Diff the current tree of files against the index.
 diffAgainstIndex :: Index -> IOE ()
 diffAgainstIndex index = do
   allpairs <- forM (in_entries index) $ \entry -> do
@@ -38,7 +41,7 @@ diffAgainstIndex index = do
     let changed = statDiffers entry stat
     liftIO $ print (ie_name entry, changed)
     if changed
-      then return $ Just $ DiffEntry (GitItem (ie_hash entry)) (TreeItem (ie_name entry) Nothing)
+      then return $ Just $ (GitItem (ie_hash entry), TreeItem (ie_name entry) Nothing)
       else return Nothing
   let pairs = catMaybes allpairs
   -- Here, git does a bunch of filtering/munging of the list of diffs to
@@ -47,9 +50,11 @@ diffAgainstIndex index = do
   mapM_ diffPair pairs
   return ()
 
-hashFile :: FilePath -> IOE Hash
-hashFile path = do
-  -- FIXME: super-slow for now, will fix later.
+-- |Hash a file as a git-style blob.
+hashFileAsBlob :: FilePath -> IOE Hash
+hashFileAsBlob path = do
+  -- FIXME: we use a pipe to sha1sum for now.
+  -- Should probably use haskell-gcrypt's SHA1.
   (output, exit) <- liftIO $ do
     content <- readFile path
     (inp,out,err,pid) <- runInteractiveCommand "sha1sum"
@@ -65,6 +70,7 @@ hashFile path = do
     ExitSuccess -> do
       return $ Hash (fromHex (take 40 output))
 
+-- |Run "diff" over two paths, coloring the output.
 runFancyDiffCommand :: FilePath -> FilePath -> IO ExitCode
 runFancyDiffCommand path1 path2 = do
   (_,out,_,pid) <- runInteractiveProcess "diff" ["-u", path1, path2]
@@ -93,9 +99,10 @@ runFancyDiffCommand path1 path2 = do
         -- TODO: trailing whitespace.
         _ -> line
 
--- diff.c:2730
-diffPair :: DiffEntry -> IOE String
-diffPair (DiffEntry item1 item2) = do
+-- |Diff a pair of DiffItems, outputting git-diff-style diffs to stdout.
+diffPair :: (DiffItem, DiffItem) -> IOE String
+diffPair (item1, item2) = do
+  -- diff.c:2730
   -- XXX test if they're directories and skip
   (item1, hash1) <- itemWithHash item1
   (item2, hash2) <- itemWithHash item2
@@ -119,7 +126,7 @@ diffPair (DiffEntry item1 item2) = do
     itemWithHash item@(GitItem hash) = return (item, hash)
     itemWithHash item@(TreeItem path (Just hash)) = return (item, hash)
     itemWithHash (TreeItem path Nothing) = do
-      hash <- hashFile path
+      hash <- hashFileAsBlob path
       let item = TreeItem path (Just hash)
       return (item, hash)
 
