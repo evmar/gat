@@ -3,12 +3,14 @@ module Diff where
 import qualified Data.ByteString.Lazy as BL
 import Control.Monad
 import Control.Monad.Error
+import Data.List
 import Data.Maybe
 import Text.Printf
 import System.Directory
 import System.Exit
 import System.IO
 import System.Posix.Files
+import System.Posix.IO
 import System.Process
 
 import Index
@@ -56,11 +58,40 @@ hashFile path = do
     hClose inp
     output <- hGetContents out
     exit <- waitForProcess pid
+
     return (output, exit)
   case exit of
     ExitFailure n -> throwError $ printf "sha1sum '%s' failed: %d" path n
     ExitSuccess -> do
       return $ Hash (fromHex (take 40 output))
+
+runFancyDiffCommand :: FilePath -> FilePath -> IO ExitCode
+runFancyDiffCommand path1 path2 = do
+  (_,out,_,pid) <- runInteractiveProcess "diff" ["-u", path1, path2]
+                   Nothing Nothing
+  difftext <- hGetContents out
+  mapM_ (putStrLn . colorDiffLine) (lines difftext)
+  exit <- waitForProcess pid
+  return exit
+  where
+    col_reset = "\x1b[m"
+    col_meta  = "\x1b[1m"
+    col_old   = "\x1b[31m"
+    col_new   = "\x1b[32m"
+    col_frag  = "\x1b[36m"
+    colorLine color line = color ++ line ++ col_reset
+    prefixColors = [
+        ("--- ", col_meta)
+      , ("+++ ", col_meta)
+      , ("-",   col_old)
+      , ("+",   col_new)
+      , ("@@ ",  col_frag)
+      ]
+    colorDiffLine line =
+      case filter (\(pfx,_) -> pfx `isPrefixOf` line) prefixColors of
+        ((_,color):_) -> color ++ line ++ col_reset
+        -- TODO: trailing whitespace.
+        _ -> line
 
 -- diff.c:2730
 diffPair :: DiffEntry -> IOE String
@@ -73,9 +104,7 @@ diffPair (DiffEntry item1 item2) = do
     liftIO $ printf "index %s..%s %06o\n" (shortHash hash1) (shortHash hash2) mode
     withItemPath item1 $ \path1 -> do
     withItemPath item2 $ \path2 -> do
-      exit <- liftIO $ do
-        pid <- runCommand ("diff -u " ++ path1 ++ " " ++ path2)
-        waitForProcess pid
+      exit <- liftIO $ runFancyDiffCommand path1 path2
       case exit of
         ExitSuccess -> return ()
         ExitFailure 1 -> return ()  -- diff returns this?
