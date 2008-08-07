@@ -3,7 +3,11 @@ module Diff where
 import Control.Monad
 import Control.Monad.Error
 import Data.Maybe
+import Text.Printf
+import System.Exit
+import System.IO
 import System.Posix.Files
+import System.Process
 
 import Index
 import Shared
@@ -30,14 +34,45 @@ diffAgainstIndex index = do
       then return $ Just $ DiffEntry (Just (ie_hash entry)) Nothing (ie_name entry)
       else return Nothing
   let pairs = catMaybes allpairs
+  -- Here, git does a bunch of filtering/munging of the list of diffs to
+  -- handle renames and command-line flags.
+  -- Rely on an external diff command for now?
   liftIO $ print pairs
+  diffPair (head pairs)
   return ()
-  -- for each entry in index:
-  --   stat same file
-  --   special symlink/dir handling diff-lib.c:355
-  --   if stat failed:
-  --     mark as removed
-  --     continue
-  --   compare against stat cache
-  --   if different:
-  --     add to diff list
+
+hashFile :: FilePath -> IOE Hash
+hashFile path = do
+  -- FIXME: super-slow for now, will fix later.
+  (output, exit) <- liftIO $ do
+    content <- readFile path
+    (inp,out,err,pid) <- runInteractiveCommand "sha1sum"
+    hPutStr inp $ printf "blob %u\0" (length content)
+    hPutStr inp $ content
+    hClose inp
+    output <- hGetContents out
+    exit <- waitForProcess pid
+    return (output, exit)
+  case exit of
+    ExitFailure n -> throwError $ printf "sha1sum '%s' failed: %d" path n
+    ExitSuccess -> do
+      return $ Hash (fromHex (take 40 output))
+
+-- diff.c:2730
+diffPair :: DiffEntry -> IOE String
+diffPair (DiffEntry mhasha mhashb path) = do
+  -- test if they're directories and skip
+  hasha <- hashIfNecessary mhasha
+  hashb <- hashIfNecessary mhashb
+  let mode = 0 :: Int  -- FIXME
+  if hasha /= hashb
+    then liftIO $ printf "index %s..%s %06o\n" (shortHash hasha) (shortHash hashb) mode
+    else return ()
+  return ""
+
+  where
+    shortHash :: Hash -> String
+    shortHash (Hash bs) = take 7 $ asHex bs
+    hashIfNecessary (Just hash) = return hash
+    hashIfNecessary Nothing     = hashFile path
+

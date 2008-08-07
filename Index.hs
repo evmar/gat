@@ -7,6 +7,7 @@ import qualified Data.ByteString.Char8 as B8
 import Data.ByteString.Internal (c2w, w2c)
 import Data.Binary.Strict.Get
 import Data.Bits
+import Data.Char
 import Data.Word
 import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
@@ -14,14 +15,19 @@ import System.Posix.Types (EpochTime)
 
 import Shared
 
-newtype Hash = Hash B.ByteString
+newtype Hash = Hash B.ByteString deriving Eq
 
 instance Show Hash where
-  show (Hash bs) = asHex bs
+  show (Hash bs) = "[Hash " ++ asHex bs ++ "]"
 
 asHex :: B.ByteString -> String
 asHex = concatMap hex . B.unpack where
   hex c = printf "%02x" (c :: Word8)
+fromHex :: String -> B.ByteString
+fromHex = B.pack . bytes where
+  bytes (x1:x2:rest) = parseHex x1 x2 : bytes rest
+  bytes []           = []
+  parseHex x1 x2 = fromIntegral (digitToInt x1 * 16 + digitToInt x2)
 
 readInt :: B.ByteString -> Int
 readInt str =
