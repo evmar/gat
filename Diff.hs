@@ -1,5 +1,6 @@
 module Diff where
 
+import qualified Data.ByteString.Lazy as BL
 import Control.Monad
 import Control.Monad.Error
 import Data.Maybe
@@ -11,6 +12,7 @@ import System.Posix.Files
 import System.Process
 
 import Index
+import ObjectStore
 import Shared
 
 statDiffers :: IndexEntry -> FileStatus -> Bool
@@ -39,9 +41,8 @@ diffAgainstIndex index = do
   let pairs = catMaybes allpairs
   -- Here, git does a bunch of filtering/munging of the list of diffs to
   -- handle renames and command-line flags.
-  -- Rely on an external diff command for now?
   liftIO $ print pairs
-  diffPair (head pairs)
+  mapM_ diffPair pairs
   return ()
 
 hashFile :: FilePath -> IOE Hash
@@ -95,9 +96,10 @@ diffPair (DiffEntry item1 item2) = do
 
     withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
     withItemPath (GitItem hash) use = do
+      (_,_,contents) <- getObject hash
       path <- liftIO $ do
-        (path, handle) <- openBinaryTempFile "/tmp" "gat-diff."
-        hPutStrLn handle "temp junk"
+        (path, handle) <- openBinaryTempFile "/tmp" "gat-diff-"
+        BL.hPut handle contents
         hClose handle
         return path
       result <- use path  -- XXX catch error
