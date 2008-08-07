@@ -21,8 +21,6 @@ import Diff
 import Index
 import Shared
 
-type SHA1 = String
-
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
 splitAround :: Word8 -> BL.ByteString -> Maybe (BL.ByteString, BL.ByteString)
@@ -46,15 +44,15 @@ parseHeader header = do
   return (objtype, size, rest)
 
 -- |Return the path to a loose object.
-objectPath :: SHA1 -> FilePath
-objectPath sha1 =
-  let (before, after) = splitAt 2 sha1
+objectPath :: Hash -> FilePath
+objectPath hash =
+  let (before, after) = splitAt 2 (hashAsHex hash)
   in ".git/objects" </> before </> after
 
-data Ref = RefObject SHA1 | RefSymbolic String deriving Show
+data Ref = RefObject Hash | RefSymbolic String deriving Show
 
-isSHA1 :: String -> Bool
-isSHA1 str = length str == 40 && all isHexDigit str
+isHashString :: String -> Bool
+isHashString str = length str == 40 && all isHexDigit str
 
 firstTrue :: [IO (Maybe a)] -> IO (Maybe a)
 firstTrue []     = return Nothing
@@ -69,7 +67,7 @@ revParse name = do
   symref <- liftIO $ firstTrue $ map testPath sympaths
   case symref of
     Just symref -> return (RefSymbolic symref)
-    Nothing | isSHA1 name -> return (RefObject name)
+    Nothing | isHashString name -> return $ RefObject (Hash (fromHex name))
     _ -> throwError $ "couldn't parse ref: " ++ name
   where
     testPath path = do
@@ -80,7 +78,7 @@ revParse name = do
     prefixes = ["", "refs", "refs/tags", "refs/heads", "refs/remotes"]
     sympaths = map (</> name) prefixes ++ ["refs/remotes" </> name </> "HEAD"]
 
-getObject :: SHA1 -> IOE (BL.ByteString, Int, BL.ByteString)
+getObject :: Hash -> IOE (BL.ByteString, Int, BL.ByteString)
 getObject sha1 = do
   let path = objectPath sha1
   raw <- liftIO $ BL.readFile path
@@ -104,32 +102,35 @@ getObject sha1 = do
 stripTrailingWhitespace :: String -> String
 stripTrailingWhitespace = reverse . (dropWhile isSpace) . reverse
 
-resolveRef :: String -> IOE SHA1
+resolveRef :: String -> IOE Hash
 resolveRef symref = do
   content <- liftIO $ readFile (".git" </> symref)
   let ref = stripTrailingWhitespace content
   case stripPrefix "ref: " ref of
     Just target -> resolveRef target
-    Nothing | isSHA1 ref -> return ref
+    Nothing | isHashString ref -> return $ Hash (fromHex ref)
     _ -> throwError $ "bad ref: " ++ ref
 
-cmdRef :: String -> IOE ()
-cmdRef name = do
+cmdRef :: [String] -> IOE ()
+cmdRef args = do
+  unless (length args == 1) $
+    throwError "'ref' takes one argument"
+  let [name] = args
   (RefSymbolic ref) <- revParse name
-  sha1 <- resolveRef ref
-  liftIO $ putStrLn sha1
+  hash <- resolveRef ref
+  liftIO $ print hash
 
 cmdCat :: [String] -> IOE ()
 cmdCat args = do
-  case args of
-    [name] -> do
-      ref <- revParse name
-      sha1 <- case ref of
-                RefSymbolic ref -> resolveRef ref
-                RefObject obj -> return obj
-      (objtype, size, content) <- getObject sha1
-      liftIO $ BL.putStr content
-    _ -> throwError "'cat' takes one argument"
+  unless (length args == 1) $
+    throwError "'cat' takes one argument"
+  let [name] = args
+  ref <- revParse name
+  sha1 <- case ref of
+            RefSymbolic ref -> resolveRef ref
+            RefObject obj -> return obj
+  (objtype, size, content) <- getObject sha1
+  liftIO $ BL.putStr content
 
 cmdDumpIndex args = do
   unless (length args == 0) $
@@ -147,6 +148,7 @@ commands = [
     ("cat", cmdCat)
   , ("dump-index", cmdDumpIndex)
   , ("diff-index", cmdDiffIndex)
+  , ("ref", cmdRef)
   ]
 
 usage message = do

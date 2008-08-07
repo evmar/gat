@@ -28,6 +28,8 @@ fromHex = B.pack . bytes where
   bytes (x1:x2:rest) = parseHex x1 x2 : bytes rest
   bytes []           = []
   parseHex x1 x2 = fromIntegral (digitToInt x1 * 16 + digitToInt x2)
+hashAsHex :: Hash -> String
+hashAsHex (Hash bs) = asHex bs
 
 readInt :: B.ByteString -> Int
 readInt str =
