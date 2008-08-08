@@ -18,9 +18,16 @@ parseRev input =
 
 p_ref :: Parser Rev
 p_ref = do rev <- (p_sha1 <|> p_symref)
-           modrev <- option rev (p_parent rev)
+           modrev <- nested rev (p_parent)
            eof; return modrev
   where
+    -- |Sorta like a foldl of parsers: repeatedly parse, feeding output
+    -- back in as input, until it no longer applies.
+    nested base parser = do
+      next <- optionMaybe (parser base)
+      case next of
+        Just next -> nested next parser
+        Nothing -> return base
     p_sha1 = count 40 hexDigit >>= return . RevHash
     -- XXX what chars are allowed in a symref?
     p_symref = many1 (alphaNum <|> char '/') >>= return . RevSymRef
