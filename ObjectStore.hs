@@ -1,10 +1,12 @@
 module ObjectStore (
     getObjectRaw, getObject
   , Object(..)
+  , findTree
 ) where
 
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as B
 import Codec.Compression.Zlib (decompress)
 import Control.Monad
 import Control.Monad.Error
@@ -16,7 +18,7 @@ import System.FilePath
 import Shared
 
 data Object = Blob BL.ByteString | Commit [(String,String)] String
-            | Tree BL.ByteString deriving Show
+            | Tree (BL.ByteString, FilePath, Hash, BL.ByteString) deriving Show
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
@@ -74,7 +76,10 @@ getObject hash = do
   (objtype, raw) <- getObjectRaw hash
   case bsToString objtype of
     "blob" -> return $ Blob raw
-    "tree" -> return $ Tree raw
+    "tree" ->
+      case parseTreeEntry raw of
+        Just x -> return $ Tree x
+        Nothing -> throwError "couldn't parse tree"
     "commit" -> let (headers, message) = parseCommit raw
                 in return $ Commit headers message
     typ -> throwError $ "unknown object type: " ++ typ
@@ -93,3 +98,21 @@ parseCommit raw = (headers, message) where
   -- XXX unlines loses whether there was a trailing newline.  do we care?
   message = unlines messagelines
 
+findTree :: Hash -> IOE Object
+findTree hash = do
+  obj <- getObject hash
+  case obj of
+    Blob _ -> throwError "found blob while looking for tree"
+    Commit headers _ ->
+      case lookup "tree" headers of
+        Just hash -> getObject (Hash (fromHex hash))
+        Nothing -> throwError "no commit?"
+    Tree _ -> return obj
+
+parseTreeEntry :: BL.ByteString -> Maybe (BL.ByteString, FilePath, Hash, BL.ByteString)
+parseTreeEntry raw = do
+  -- The header looks like "%s %ld\0".
+  (mode, raw')  <- splitAround (c2w ' ')  raw
+  (path, raw'') <- splitAround (c2w '\0') raw'
+  let hash = B.pack $ BL.unpack $ BL.take 20 raw''
+  return (mode, bsToString path, Hash hash, BL.drop 20 raw'')
