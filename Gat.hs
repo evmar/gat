@@ -16,9 +16,8 @@ import Text.Printf
 import Diff
 import Index
 import ObjectStore
+import RevParse
 import Shared
-
-data Ref = RefObject Hash | RefSymbolic String deriving Show
 
 isHashString :: String -> Bool
 isHashString str = length str == 40 && all isHexDigit str
@@ -31,13 +30,10 @@ firstTrue (x:xs) = do
     Just _ -> return test
     Nothing -> firstTrue xs
 
-revParse :: String -> IOE Ref
-revParse name = do
-  symref <- liftIO $ firstTrue $ map testPath sympaths
-  case symref of
-    Just symref -> return (RefSymbolic symref)
-    Nothing | isHashString name -> return $ RefObject (Hash (fromHex name))
-    _ -> throwError $ "couldn't parse ref: " ++ name
+-- |Take a name like "foo" and map it to a full name like "refs/heads/foo",
+-- following the resolution rules found in the Git docs.
+expandSymRef :: String -> IO (Maybe String)
+expandSymRef name = firstTrue $ map testPath sympaths
   where
     testPath path = do
       ok <- doesFileExist (".git" </> path)
@@ -47,16 +43,40 @@ revParse name = do
     prefixes = ["", "refs", "refs/tags", "refs/heads", "refs/remotes"]
     sympaths = map (</> name) prefixes ++ ["refs/remotes" </> name </> "HEAD"]
 
+revToHash :: String -> IOE Hash
+revToHash name = do
+  rev <- ErrorT $ return $ parseRev name
+  expandRev rev
+  where
+    expandRev (RevHash hex) = return $ Hash (fromHex hex)
+    expandRev (RevParent nth rev) = do
+      hash <- expandRev rev
+      getNthParent nth hash
+    expandRev (RevSymRef name) = do
+      expanded <- liftIO $ expandSymRef name
+      case expanded of
+        Just name -> resolveSymbolic name
+        Nothing -> throwError $ "couldn't find symref " ++ name
+
+    getNthParent nth hash = do
+      -- TODO: obey the "nth".
+      obj <- getObject hash
+      case obj of
+        Commit headers message ->
+          case lookup "parent" headers of
+            Just hex -> return $ Hash (fromHex hex)
+            Nothing -> throwError "commit has no parent"
+        _ -> throwError "object is not a commit"
+
 stripTrailingWhitespace :: String -> String
 stripTrailingWhitespace = reverse . (dropWhile isSpace) . reverse
 
-resolveRef :: Ref -> IOE Hash
-resolveRef (RefObject hash) = return hash
-resolveRef (RefSymbolic symref) = do
+resolveSymbolic :: String -> IOE Hash
+resolveSymbolic symref = do
   content <- liftIO $ readFile (".git" </> symref)
   let ref = stripTrailingWhitespace content
   case stripPrefix "ref: " ref of
-    Just target -> resolveRef (RefSymbolic target)
+    Just target -> resolveSymbolic target
     Nothing | isHashString ref -> return $ Hash (fromHex ref)
     _ -> throwError $ "bad ref: " ++ ref
 
@@ -65,8 +85,7 @@ cmdRef args = do
   unless (length args == 1) $
     throwError "'ref' takes one argument"
   let [name] = args
-  ref <- revParse name
-  hash <- resolveRef ref
+  hash <- revToHash name
   liftIO $ print hash
 
 cmdCat :: [String] -> IOE ()
@@ -74,8 +93,7 @@ cmdCat args = do
   unless (length args == 1) $
     throwError "'cat' takes one argument"
   let [name] = args
-  ref <- revParse name
-  hash <- resolveRef ref
+  hash <- revToHash name
   --(objtype, raw) <- getObjectRaw hash
   --liftIO $ BL.putStr raw
   obj <- getObject hash
@@ -97,9 +115,7 @@ cmdDiffTree args = do
   unless (length args == 1) $
     throwError "'diff-tree' takes one arguments"
   let name = head args
-  ref <- revParse name
-  liftIO $ print ref
-  hash <- resolveRef ref
+  hash <- revToHash name
   liftIO $ print hash
   treehash <- findTree hash
   liftIO $ print treehash
