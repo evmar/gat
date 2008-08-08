@@ -17,8 +17,10 @@ import System.FilePath
 
 import Shared
 
-data Object = Blob BL.ByteString | Commit [(String,String)] String
-            | Tree [(String, FilePath, Hash)] deriving Show
+data Object = Blob BL.ByteString
+            | Commit [(String,String)] String
+            | Tree [(String, FilePath, Hash)]
+            deriving Show
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
