@@ -50,12 +50,13 @@ revParse name = do
 stripTrailingWhitespace :: String -> String
 stripTrailingWhitespace = reverse . (dropWhile isSpace) . reverse
 
-resolveRef :: String -> IOE Hash
-resolveRef symref = do
+resolveRef :: Ref -> IOE Hash
+resolveRef (RefObject hash) = return hash
+resolveRef (RefSymbolic symref) = do
   content <- liftIO $ readFile (".git" </> symref)
   let ref = stripTrailingWhitespace content
   case stripPrefix "ref: " ref of
-    Just target -> resolveRef target
+    Just target -> resolveRef (RefSymbolic target)
     Nothing | isHashString ref -> return $ Hash (fromHex ref)
     _ -> throwError $ "bad ref: " ++ ref
 
@@ -64,7 +65,7 @@ cmdRef args = do
   unless (length args == 1) $
     throwError "'ref' takes one argument"
   let [name] = args
-  (RefSymbolic ref) <- revParse name
+  ref <- revParse name
   hash <- resolveRef ref
   liftIO $ print hash
 
@@ -74,9 +75,7 @@ cmdCat args = do
     throwError "'cat' takes one argument"
   let [name] = args
   ref <- revParse name
-  hash <- case ref of
-            RefSymbolic ref -> resolveRef ref
-            RefObject obj -> return obj
+  hash <- resolveRef ref
   --(objtype, raw) <- getObjectRaw hash
   --liftIO $ BL.putStr raw
   obj <- getObject hash
@@ -90,14 +89,27 @@ cmdDumpIndex args = do
 
 cmdDiffIndex args = do
   unless (length args == 0) $
-    throwError "'dump-index' takes no arguments"
+    throwError "'diff-index' takes no arguments"
   index <- loadIndex
   diffAgainstIndex index
+
+cmdDiffTree args = do
+  unless (length args == 1) $
+    throwError "'diff-tree' takes one arguments"
+  let name = head args
+  ref <- revParse name
+  liftIO $ print ref
+  hash <- resolveRef ref
+  liftIO $ print hash
+  treehash <- findTree hash
+  liftIO $ print treehash
+  diffAgainstTree treehash
 
 commands = [
     ("cat", cmdCat)
   , ("dump-index", cmdDumpIndex)
   , ("diff-index", cmdDiffIndex)
+  , ("diff-tree", cmdDiffTree)
   , ("ref", cmdRef)
   ]
 

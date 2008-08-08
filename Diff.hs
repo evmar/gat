@@ -50,6 +50,16 @@ diffAgainstIndex index = do
   mapM_ diffPair pairs
   return ()
 
+diffAgainstTree :: Object -> IOE ()
+diffAgainstTree tree = do
+  entries <- case tree of
+               Tree entries -> return entries
+               _ -> throwError "hash isn't a tree"
+  mapM_ diffPair (map diffPairFromTreeEntry entries)
+  where
+    diffPairFromTreeEntry (mode,path,hash) =
+      (GitItem hash, TreeItem path Nothing)
+
 -- |Hash a file as a git-style blob.
 hashFileAsBlob :: FilePath -> IOE Hash
 hashFileAsBlob path = do
@@ -100,7 +110,7 @@ runFancyDiffCommand path1 path2 = do
         _ -> line
 
 -- |Diff a pair of DiffItems, outputting git-diff-style diffs to stdout.
-diffPair :: (DiffItem, DiffItem) -> IOE String
+diffPair :: (DiffItem, DiffItem) -> IOE ()
 diffPair (item1, item2) = do
   -- diff.c:2730
   -- XXX test if they're directories and skip
@@ -116,7 +126,6 @@ diffPair (item1, item2) = do
         ExitSuccess -> return ()
         ExitFailure 1 -> return ()  -- diff returns this?
         ExitFailure n -> throwError $ printf "diff failed: %d" n
-  return ""
 
   where
     shortHash :: Hash -> String
