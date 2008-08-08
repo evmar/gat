@@ -74,11 +74,11 @@ cmdCat args = do
     throwError "'cat' takes one argument"
   let [name] = args
   ref <- revParse name
-  sha1 <- case ref of
+  hash <- case ref of
             RefSymbolic ref -> resolveRef ref
             RefObject obj -> return obj
-  (objtype, size, content) <- getObject sha1
-  liftIO $ BL.putStr content
+  (objtype, raw) <- getObjectRaw hash
+  liftIO $ BL.putStr raw
 
 cmdDumpIndex args = do
   unless (length args == 0) $

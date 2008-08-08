@@ -132,7 +132,7 @@ diffPair (item1, item2) = do
 
     withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
     withItemPath (GitItem hash) use = do
-      (_,_,contents) <- getObject hash
+      (Blob contents) <- getObject hash
       path <- liftIO $ do
         (path, handle) <- openBinaryTempFile "/tmp" "gat-diff-"
         BL.hPut handle contents

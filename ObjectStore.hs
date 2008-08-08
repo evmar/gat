@@ -1,5 +1,6 @@
 module ObjectStore (
-  getObject
+    getObjectRaw, getObject
+  , Object(..)
 ) where
 
 import qualified Data.ByteString.Char8 as BC
@@ -13,6 +14,9 @@ import Data.Word
 import System.FilePath
 
 import Shared
+
+data Object = Blob BL.ByteString | Commit BL.ByteString
+            | Tree BL.ByteString deriving Show
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
@@ -42,9 +46,9 @@ objectPath hash =
   let (before, after) = splitAt 2 (hashAsHex hash)
   in ".git/objects" </> before </> after
 
-getObject :: Hash -> IOE (BL.ByteString, Int, BL.ByteString)
-getObject sha1 = do
-  let path = objectPath sha1
+getObjectRaw :: Hash -> IOE (BL.ByteString, BL.ByteString)
+getObjectRaw hash = do
+  let path = objectPath hash
   raw <- liftIO $ BL.readFile path
   -- There is an older format that put info in the first few bytes of the
   -- file.  Git uses the following check to verify it's not this older format.
@@ -60,6 +64,14 @@ getObject sha1 = do
   -- header.
   let uncompressed = decompress raw
   case parseHeader uncompressed of
-    Just parts -> return parts
+    Just (objtype, size, raw) -> return (objtype, raw)
     Nothing -> throwError "error parsing object"
 
+getObject :: Hash -> IOE Object
+getObject hash = do
+  (objtype, raw) <- getObjectRaw hash
+  case map w2c (BL.unpack objtype) of
+    "blob" -> return $ Blob raw
+    "tree" -> return $ Tree raw
+    "commit" -> return $ Commit raw
+    typ -> throwError $ "unknown object type: " ++ typ
