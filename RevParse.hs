@@ -16,6 +16,9 @@ parseRev input =
     Right parse -> return parse
 
 p_ref :: Parser Rev
-p_ref = do rev <- p_sha1; eof; return rev
+p_ref = do rev <- (p_sha1 <|> p_symref)
+           eof; return rev
   where
     p_sha1 = count 40 hexDigit >>= return . RevHash
+    -- XXX what chars are allowed in a symref?
+    p_symref = many1 (alphaNum <|> char '/') >>= return . RevSymRef
