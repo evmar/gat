@@ -111,22 +111,27 @@ cmdDiffIndex args = do
   index <- loadIndex
   diffAgainstIndex index
 
-cmdDiffTree args = do
-  unless (length args == 1) $
-    throwError "'diff-tree' takes one arguments"
-  let name = head args
-  hash <- revToHash name
-  liftIO $ print hash
-  treehash <- findTree hash
-  liftIO $ print treehash
-  diffAgainstTree treehash
+cmdDiff args = do
+  case args of
+    [] -> do
+      tree <- revTree "HEAD"
+      diffAgainstTree tree
+    [name] -> do
+      tree <- revTree name
+      diffAgainstTree tree
+    [name1,name2] -> do
+      tree1 <- revTree name1
+      tree2 <- revTree name2
+      diffTrees tree1 tree2
+  where
+    revTree name = revToHash name >>= findTree
 
 commands = [
-    ("cat", cmdCat)
+    ("cat",  cmdCat)
   , ("dump-index", cmdDumpIndex)
   , ("diff-index", cmdDiffIndex)
-  , ("diff-tree", cmdDiffTree)
-  , ("ref", cmdRef)
+  , ("diff", cmdDiff)
+  , ("ref",  cmdRef)
   ]
 
 usage message = do

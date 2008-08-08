@@ -60,6 +60,17 @@ diffAgainstTree tree = do
     diffPairFromTreeEntry (mode,path,hash) =
       (GitItem hash, TreeItem path Nothing)
 
+diffTrees :: Object -> Object -> IOE ()
+diffTrees tree1 tree2 = do
+  -- XXX this is totally broken because it assumes tree filenames line up.
+  (e1,e2) <- case (tree1,tree2) of
+               (Tree e1,Tree e2) -> return (e1,e2)
+               _ -> throwError "hash aren't trees"
+  mapM_ diffPair (zipWith diffPairFromTrees e1 e2)
+  where
+    diffPairFromTrees (_,_,hash1) (_,_,hash2) =
+      (GitItem hash1, GitItem hash2)
+
 -- |Hash a file as a git-style blob.
 hashFileAsBlob :: FilePath -> IOE Hash
 hashFileAsBlob path = do
