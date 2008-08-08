@@ -18,7 +18,7 @@ import System.FilePath
 import Shared
 
 data Object = Blob BL.ByteString | Commit [(String,String)] String
-            | Tree (BL.ByteString, FilePath, Hash, BL.ByteString) deriving Show
+            | Tree [(String, FilePath, Hash)] deriving Show
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
@@ -76,10 +76,9 @@ getObject hash = do
   (objtype, raw) <- getObjectRaw hash
   case bsToString objtype of
     "blob" -> return $ Blob raw
-    "tree" ->
-      case parseTreeEntry raw of
-        Just x -> return $ Tree x
-        Nothing -> throwError "couldn't parse tree"
+    "tree" -> do
+      entries <- ErrorT $ return $ parseTree raw
+      return $ Tree entries
     "commit" -> let (headers, message) = parseCommit raw
                 in return $ Commit headers message
     typ -> throwError $ "unknown object type: " ++ typ
@@ -109,10 +108,22 @@ findTree hash = do
         Nothing -> throwError "no commit?"
     Tree _ -> return obj
 
-parseTreeEntry :: BL.ByteString -> Maybe (BL.ByteString, FilePath, Hash, BL.ByteString)
+parseTree :: BL.ByteString -> Either String [(String, FilePath, Hash)]
+parseTree raw = do
+  if BL.null raw
+    then return []
+    else
+      case parseTreeEntry raw of
+        Just (mode, path, hash, rest) -> do
+          xs <- parseTree rest
+          return ((mode,path,hash):xs)
+        Nothing ->
+          throwError "error parsing tree entry"
+
+parseTreeEntry :: BL.ByteString -> Maybe (String, FilePath, Hash, BL.ByteString)
 parseTreeEntry raw = do
   -- The header looks like "%s %ld\0".
   (mode, raw')  <- splitAround (c2w ' ')  raw
   (path, raw'') <- splitAround (c2w '\0') raw'
-  let hash = B.pack $ BL.unpack $ BL.take 20 raw''
-  return (mode, bsToString path, Hash hash, BL.drop 20 raw'')
+  let hash = B.concat $ BL.toChunks $ BL.take 20 raw''
+  return (bsToString mode, bsToString path, Hash hash, BL.drop 20 raw'')

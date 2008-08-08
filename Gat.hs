@@ -77,8 +77,10 @@ cmdCat args = do
   hash <- case ref of
             RefSymbolic ref -> resolveRef ref
             RefObject obj -> return obj
-  (objtype, raw) <- getObjectRaw hash
-  liftIO $ BL.putStr raw
+  --(objtype, raw) <- getObjectRaw hash
+  --liftIO $ BL.putStr raw
+  obj <- getObject hash
+  liftIO $ print obj
 
 cmdDumpIndex args = do
   unless (length args == 0) $
