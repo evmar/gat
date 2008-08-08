@@ -15,7 +15,7 @@ import System.FilePath
 
 import Shared
 
-data Object = Blob BL.ByteString | Commit BL.ByteString
+data Object = Blob BL.ByteString | Commit [(String,String)] String
             | Tree BL.ByteString deriving Show
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
@@ -67,11 +67,29 @@ getObjectRaw hash = do
     Just (objtype, size, raw) -> return (objtype, raw)
     Nothing -> throwError "error parsing object"
 
+bsToString = map w2c . BL.unpack
+
 getObject :: Hash -> IOE Object
 getObject hash = do
   (objtype, raw) <- getObjectRaw hash
-  case map w2c (BL.unpack objtype) of
+  case bsToString objtype of
     "blob" -> return $ Blob raw
     "tree" -> return $ Tree raw
-    "commit" -> return $ Commit raw
+    "commit" -> let (headers, message) = parseCommit raw
+                in return $ Commit headers message
     typ -> throwError $ "unknown object type: " ++ typ
+
+breakAround :: Eq a => (a -> Bool) -> [a] -> ([a], [a])
+breakAround pred list = (before, after) where
+  (before, rest) = break pred list
+  after = case rest of
+            (x:xs) | pred x -> xs
+            _ -> after
+
+parseCommit :: BL.ByteString -> ([(String,String)], String)
+parseCommit raw = (headers, message) where
+  (headerlines, messagelines) = breakAround null $ lines (bsToString raw)
+  headers = map (breakAround (== ' ')) headerlines
+  -- XXX unlines loses whether there was a trailing newline.  do we care?
+  message = unlines messagelines
+
