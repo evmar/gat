@@ -85,13 +85,6 @@ getObject hash = do
                 in return $ Commit headers message
     typ -> throwError $ "unknown object type: " ++ typ
 
-breakAround :: Eq a => (a -> Bool) -> [a] -> ([a], [a])
-breakAround pred list = (before, after) where
-  (before, rest) = break pred list
-  after = case rest of
-            (x:xs) | pred x -> xs
-            _ -> after
-
 parseCommit :: BL.ByteString -> ([(String,String)], String)
 parseCommit raw = (headers, message) where
   (headerlines, messagelines) = breakAround null $ lines (bsToString raw)

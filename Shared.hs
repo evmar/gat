@@ -24,3 +24,13 @@ fromHex = B.pack . bytes where
 hashAsHex :: Hash -> String
 hashAsHex (Hash bs) = asHex bs
 
+isHashString :: String -> Bool
+isHashString str = length str == 40 && all isHexDigit str
+
+-- |Like @break@, but drops the matched item.
+breakAround :: Eq a => (a -> Bool) -> [a] -> ([a], [a])
+breakAround pred list = (before, after) where
+  (before, rest) = break pred list
+  after = case rest of
+            (x:xs) | pred x -> xs
+            _ -> after
