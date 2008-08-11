@@ -15,6 +15,7 @@ import Data.ByteString.Internal (c2w, w2c)
 import Data.Word
 import System.FilePath
 
+import Pack
 import Shared
 
 data Object = Blob BL.ByteString

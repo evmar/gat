@@ -1,3 +1,5 @@
+module Pack where
+
 import Control.Monad
 import Control.Monad.Error
 import qualified Data.ByteString as B
@@ -10,34 +12,50 @@ import Data.Word
 import Data.Bits
 import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
+import System.Directory
 
 import Shared
 
 -- Git's "Documentation/pack-format.txt" was very helpful for writing this.
 
+-- XXX fill these in from cache.h.
 data PackObjectType = PackCommit | PackTree | PackBlob | PackTag
+                    | PackOfsDelta | PackRefDelta
                       deriving Show
 instance Enum PackObjectType where
   toEnum 1 = PackCommit
-  fromEnum PackCommit = 1
+  toEnum 2 = PackTree
+  toEnum 3 = PackBlob
+  toEnum 4 = PackTag
+  toEnum 5 = PackOfsDelta
+  toEnum 6 = PackRefDelta
+  fromEnum = undefined
 
-dumpPack :: IOE ()
-dumpPack = do
-  mmap <- liftIO $ mmapFileByteString "pack" Nothing
+packDataPath = (".git/objects/pack/" ++)
+
+getPackEntry :: FilePath -> Word32 -> IOE BL.ByteString
+getPackEntry file offset = do
+  mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".pack") Nothing
   let (result,body) = runGet readHeader mmap
-  (signature, version, entries) <- ErrorT $ return result
+  (signature, version, entry_count) <- ErrorT $ return result
+  when (signature /= pack_signature) $
+    throwError "bad pack signature"
+  when (version /= 2) $
+    throwError "bad pack version"
+
   liftIO $ printf "signature: %x. version: %d. entries: %d.\n"
-                  signature version entries
-  let (x,rest) = runGet (readObject body) body
+                  signature version entry_count
+  let (x,rest) = runGet (readObject body) (B.drop (fromIntegral offset) body)
   junk <- ErrorT $ return x
   liftIO $ print junk
+  return $ BL.pack []
   where
+    pack_signature = 0x5041434b  -- "PACK"
     readHeader = do
-      let pack_signature = 0x5041434b  -- "PACK"
       signature <- getWord32be
       version <- getWord32be
-      entries <- getWord32be
-      return (signature, version, entries)
+      entry_count <- getWord32be
+      return (signature, version, entry_count)
     readObject raw = do
       flag <- getByteAsWord32
       let msb = flag `shiftR` 7
@@ -83,9 +101,9 @@ getIndexEntry = do
   hash <- getByteString 20
   return (ofs, Hash hash)
 
-findInPackIndex :: Hash -> IOE Word32
-findInPackIndex hash@(Hash hashbytes) = do
-  mmap <- liftIO $ mmapFileByteString "idx" Nothing
+findInPackIndex :: FilePath -> Hash -> IOE Word32
+findInPackIndex file hash@(Hash hashbytes) = do
+  mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".idx") Nothing
   -- XXX check index version.
   let (ofs, rest) = runGet get mmap
   case ofs of
@@ -119,13 +137,32 @@ findInPackIndex hash@(Hash hashbytes) = do
       count <- getWord32be
       return (fromIntegral count)
 
---getPackEntry
+getPackObject :: Hash -> IOE (Maybe BL.ByteString)
+getPackObject hash = do
+  let file = "pack-429e6d8a6bcc03645c8b9286d8c38d12b37f3691"
+  offset <- findInPackIndex file hash
+  liftIO $ print offset
+  entry <- getPackEntry file offset
+  liftIO $ print entry
+  return (Just entry)
 
+-- |Get a list of all pack files (without a path or an extension).
+findPackFiles :: IO [FilePath]
+findPackFiles = do
+  files <- getDirectoryContents (packDataPath "")
+  print files
+  return $ map dropIdxSuffix $ filter (".idx" `isSuffixOf`) files
+  where
+    dropIdxSuffix path = take (length path - length ".idx") path
+
+{-
 main = do
-  let hash = Hash (fromHex "a9ecdab0bd5757cd90122f822fa802b4b95d34af")
-  --let hash = Hash (fromHex "4f8841f8a3370e0e34ce456e1bb52c0702affdbf")
+  --let hash = Hash (fromHex "a9ecdab0bd5757cd90122f822fa802b4b95d34af")
+  let hash = Hash (fromHex "4f8841f8a3370e0e34ce456e1bb52c0702affdbf")
   print ("seeking",hash)
   runErrorT $ do
-    ofs <- findInPackIndex hash
-    liftIO $ print ofs
-    dumpPack
+    offset <- findInPackIndex hash
+    liftIO $ print offset
+    entry <- getPackEntry offset
+    liftIO $ print entry
+-}
