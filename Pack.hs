@@ -14,41 +14,48 @@ import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
 import System.Directory
 
+import Object
 import Shared
 
 -- Git's "Documentation/pack-format.txt" was very helpful for writing this.
 
 -- XXX fill these in from cache.h.
-data PackObjectType = PackCommit | PackTree | PackBlob | PackTag
+data PackObjectType = PackSimple ObjectType
                     | PackOfsDelta | PackRefDelta
-                      deriving Show
-instance Enum PackObjectType where
-  toEnum 1 = PackCommit
-  toEnum 2 = PackTree
-  toEnum 3 = PackBlob
-  toEnum 4 = PackTag
-  toEnum 5 = PackOfsDelta
-  toEnum 6 = PackRefDelta
-  fromEnum = undefined
+                    deriving Show
+-- The PackObjectType integer values are encoded in pack files.
+decodePackObjectType :: Int -> Either String PackObjectType
+decodePackObjectType 1 = return $ PackSimple TypeCommit
+decodePackObjectType 2 = return $ PackSimple TypeTree
+decodePackObjectType 3 = return $ PackSimple TypeBlob
+decodePackObjectType 4 = return $ PackSimple TypeTag
+-- 5 is "for future expansion", according to cache.h.
+decodePackObjectType 6 = return $ PackOfsDelta
+decodePackObjectType 7 = return $ PackRefDelta
+decodePackObjectType n = throwError $ "bad object type: " ++ show n
 
 packDataPath = (".git/objects/pack/" ++)
 
-getPackEntry :: FilePath -> Word32 -> IOE BL.ByteString
+hexDump :: B.ByteString -> String
+hexDump str =
+  concatMap (printf "%02x ") $ B.unpack str
+
+getPackEntry :: FilePath -> Word32 -> IOE RawObject
 getPackEntry file offset = do
   mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".pack") Nothing
-  let (result,body) = runGet readHeader mmap
+  let result = fst $ runGet readHeader mmap
   (signature, version, entry_count) <- ErrorT $ return result
   when (signature /= pack_signature) $
     throwError "bad pack signature"
   when (version /= 2) $
     throwError "bad pack version"
 
-  liftIO $ printf "signature: %x. version: %d. entries: %d.\n"
-                  signature version entry_count
-  let (x,rest) = runGet (readObject body) (B.drop (fromIntegral offset) body)
-  junk <- ErrorT $ return x
-  liftIO $ print junk
-  return $ BL.pack []
+  let entry_raw = B.drop (fromIntegral offset) mmap
+  (typint, raw) <- ErrorT $ return $ fst $ runGet (readObject entry_raw) entry_raw
+  case decodePackObjectType typint of
+    Left error -> throwError error
+    Right (PackSimple typ) -> return (typ, raw)
+    Right _ -> throwError "complicated object type"  -- XXX handle these.
   where
     pack_signature = 0x5041434b  -- "PACK"
     readHeader = do
@@ -56,10 +63,11 @@ getPackEntry file offset = do
       version <- getWord32be
       entry_count <- getWord32be
       return (signature, version, entry_count)
+    readObject :: B.ByteString -> Get (Int, BL.ByteString)
     readObject raw = do
       flag <- getByteAsWord32
       let msb = flag `shiftR` 7
-      let typ = toEnum $ fromIntegral $ (flag `shiftR` 4) .&. 0x7
+      let typ = fromIntegral $ (flag `shiftR` 4) .&. 0x7
       let initial_size = flag .&. 0xF
       size <- if msb == 1
                 then readVariableSize initial_size
@@ -69,7 +77,7 @@ getPackEntry file offset = do
       -- XXX does passing it the remainder of the buffer cause the mmap to
       -- read in the remainder of the file?
       let expanded = decompress (BL.fromChunks [B.drop ofs raw])
-      return (msb,typ :: PackObjectType,size, expanded)
+      return (typ, expanded)
     readVariableSize size = do
       byte <- getByteAsWord32
       let size' = size `shiftL` 7 + byte .&. 0x7F
@@ -81,8 +89,8 @@ getPackEntry file offset = do
     getByteAsWord32 = liftM fromIntegral getWord8
 
 
-dumpIndex = do
-  mmap <- mmapFileByteString "idx" Nothing
+dumpIndex file = do
+  mmap <- mmapFileByteString (packDataPath file ++ ".idx") Nothing
   let (Right stuff,rest) = runGet get mmap
   print stuff
   where
@@ -137,14 +145,12 @@ findInPackIndex file hash@(Hash hashbytes) = do
       count <- getWord32be
       return (fromIntegral count)
 
-getPackObject :: Hash -> IOE (Maybe BL.ByteString)
+getPackObject :: Hash -> IOE RawObject
 getPackObject hash = do
   let file = "pack-429e6d8a6bcc03645c8b9286d8c38d12b37f3691"
   offset <- findInPackIndex file hash
-  liftIO $ print offset
   entry <- getPackEntry file offset
-  liftIO $ print entry
-  return (Just entry)
+  return entry
 
 -- |Get a list of all pack files (without a path or an extension).
 findPackFiles :: IO [FilePath]
@@ -154,15 +160,3 @@ findPackFiles = do
   return $ map dropIdxSuffix $ filter (".idx" `isSuffixOf`) files
   where
     dropIdxSuffix path = take (length path - length ".idx") path
-
-{-
-main = do
-  --let hash = Hash (fromHex "a9ecdab0bd5757cd90122f822fa802b4b95d34af")
-  let hash = Hash (fromHex "4f8841f8a3370e0e34ce456e1bb52c0702affdbf")
-  print ("seeking",hash)
-  runErrorT $ do
-    offset <- findInPackIndex hash
-    liftIO $ print offset
-    entry <- getPackEntry offset
-    liftIO $ print entry
--}

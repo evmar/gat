@@ -7,6 +7,8 @@ import Data.Word
 import Text.Printf
 
 type IOE a = ErrorT String IO a
+returnE :: Either String a -> IOE a
+returnE = ErrorT . return
 
 newtype Hash = Hash B.ByteString deriving Eq
 
