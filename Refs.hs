@@ -99,11 +99,3 @@ resolveRef ref = do
         then return (ref, Hash (fromHex target))
         else resolveRef target
 
-firstTrue :: [IO (Maybe a)] -> IO (Maybe a)
-firstTrue []     = return Nothing
-firstTrue (x:xs) = do
-  test <- x
-  case test of
-    Just _ -> return test
-    Nothing -> firstTrue xs
-

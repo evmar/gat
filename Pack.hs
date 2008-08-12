@@ -147,16 +147,19 @@ findInPackIndex file hash@(Hash hashbytes) = do
 
 getPackObject :: Hash -> IOE RawObject
 getPackObject hash = do
-  let file = "pack-429e6d8a6bcc03645c8b9286d8c38d12b37f3691"
-  offset <- findInPackIndex file hash
-  entry <- getPackEntry file offset
-  return entry
+  packfiles <- liftIO $ findPackFiles
+  entry <- firstTrue $ flip map packfiles $ \file -> do
+    offset <- findInPackIndex file hash
+    entry <- getPackEntry file offset
+    return (Just entry)
+  case entry of
+    Just entry -> return entry
+    Nothing -> throwError "couldn't find hash in pack files"
 
 -- |Get a list of all pack files (without a path or an extension).
 findPackFiles :: IO [FilePath]
 findPackFiles = do
   files <- getDirectoryContents (packDataPath "")
-  print files
   return $ map dropIdxSuffix $ filter (".idx" `isSuffixOf`) files
   where
     dropIdxSuffix path = take (length path - length ".idx") path

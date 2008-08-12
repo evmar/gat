@@ -36,3 +36,15 @@ breakAround pred list = (before, after) where
   after = case rest of
             (x:xs) | pred x -> xs
             _ -> after
+
+-- |firstTrue takes a list of things to do and gives you back the first one
+-- that produces a result.  (XXX this is probably the composition of some
+-- other monadic operators -- which?)
+firstTrue :: Monad m => [m (Maybe a)] -> m (Maybe a)
+firstTrue []     = return Nothing
+firstTrue (x:xs) = do
+  test <- x
+  case test of
+    Just _ -> return test
+    Nothing -> firstTrue xs
+
