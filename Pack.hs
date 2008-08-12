@@ -109,15 +109,12 @@ getIndexEntry = do
   hash <- getByteString 20
   return (ofs, Hash hash)
 
-findInPackIndex :: FilePath -> Hash -> IOE Word32
+findInPackIndex :: FilePath -> Hash -> IOE (Maybe Word32)
 findInPackIndex file hash@(Hash hashbytes) = do
   mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".idx") Nothing
   -- XXX check index version.
-  let (ofs, rest) = runGet get mmap
-  case ofs of
-    Left error -> throwError error
-    Right Nothing -> throwError "couldn't find hash in pack index"
-    Right (Just ofs) -> return ofs
+  let (result, rest) = runGet get mmap
+  returnE result
   where
     get = do
       -- First 256 words are fanout:
@@ -150,8 +147,11 @@ getPackObject hash = do
   packfiles <- liftIO $ findPackFiles
   entry <- firstTrue $ flip map packfiles $ \file -> do
     offset <- findInPackIndex file hash
-    entry <- getPackEntry file offset
-    return (Just entry)
+    case offset of
+      Nothing -> return Nothing
+      Just offset -> do
+        entry <- getPackEntry file offset
+        return (Just entry)
   case entry of
     Just entry -> return entry
     Nothing -> throwError "couldn't find hash in pack files"
