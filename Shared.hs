@@ -2,6 +2,7 @@ module Shared where
 
 import qualified Data.ByteString as B
 import Control.Monad.Error
+import Data.Bits
 import Data.Char
 import Data.Word
 import Text.Printf
@@ -47,4 +48,11 @@ firstTrue (x:xs) = do
   case test of
     Just _ -> return test
     Nothing -> firstTrue xs
+
+-- |Split a byte into a (Bool, Word8) pair that has the most significant bit
+-- and the lower 7 bits.  This is a common pattern in Git bit-packing schemes.
+splitMSB :: Word8 -> (Bool, Word8)
+splitMSB byte = (msb, bits) where
+  msb = (byte .&. 0x80) /= 0
+  bits = byte .&. 0x7F
 

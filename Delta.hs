@@ -13,12 +13,7 @@ import Data.Bits
 import Data.Word
 import Control.Monad
 
-import Pack
-
-getByteWord32 :: Get Word32
-getByteWord32 = do
-  b <- getWord8
-  return $ fromIntegral b
+import Shared (splitMSB)
 
 data Delta = Delta {
     d_origSize :: Word32     -- Original (pre-patch) data size.
@@ -44,25 +39,27 @@ readDelta = do
                 xs <- loopUntil pred action
                 return (x:xs)
         else return []
+
     readOpCode = do
-      opcode <- getWord8
-      command <- case opcode of
-        _ | opcode .&. 0x80 /= 0 ->
-          readCopy (opcode .&. 0x7F)
-        _ | opcode /= 0 ->
-          readRaw opcode
-        _ -> fail "zero opcode"
-      return command
+      split <- liftM splitMSB getWord8
+      case split of
+        (True,  opcode) -> readCopy opcode
+        (False, 0)      -> fail "zero opcode"
+        (False, opcode) -> readRaw opcode
+
     readCopy :: Word8 -> Get DeltaOp
     readCopy opcode = do
-      offset <- readPacked (opcode .&. 0xF)
+      offset  <- readPacked (opcode .&. 0xF)
       rawsize <- readPacked (opcode `shiftR` 4)
       let size = if rawsize == 0 then 0x10000 else rawsize
       return $ Copy offset size
+
     readRaw :: Word8 -> Get DeltaOp
     readRaw length = do
       raw <- getByteString (fromIntegral length)
       return $ Raw raw
+
+    -- This is super-ugly and I'm unhappy with it.  Hmm.
     readPacked :: Word8 -> Get Word32
     readPacked bits = do
       a <- if (bits .&. 0x1 /= 0)
@@ -78,6 +75,11 @@ readDelta = do
              then liftM (`shiftL` 24) getByteWord32
              else return 0
       return (a+b+c+d)
+
+    getByteWord32 :: Get Word32
+    getByteWord32 = do
+      b <- getWord8
+      return $ fromIntegral b
 
 readDeltaVarInt :: Get Word32
 readDeltaVarInt = read 0 0 where

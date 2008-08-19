@@ -102,11 +102,6 @@ readDeltaOffset = do
       let offset' = ((offset + 1) `shiftL` 7) + fromIntegral bits
       (if msb then overflow else return) offset'
 
-splitMSB :: Word8 -> (Bool, Word8)
-splitMSB byte = (msb, bits) where
-  msb = (byte .&. 0x80) /= 0
-  bits = byte .&. 0x7F
-
 getByteAsWord32 :: Get Word32
 getByteAsWord32 = liftM fromIntegral getWord8
 
