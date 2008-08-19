@@ -1,3 +1,8 @@
+module Delta (
+    Delta(..)
+  , readDelta
+  , applyDelta
+) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -89,13 +94,3 @@ applyDelta src delta = BL.fromChunks substrs where
   apply (Copy offset length) =
     B.take (fromIntegral length) $ B.drop (fromIntegral offset) src
   apply (Raw bytes) = bytes
-
-main = do
-  base <- B.readFile "testdata/delta.base"
-  rawdelta <- B.readFile "testdata/delta"
-  let parse = runGet readDelta rawdelta
-  case parse of
-    (Right delta, rest) | B.null rest -> do
-      print delta
-      BL.putStr $ applyDelta base delta
-    other -> print other
