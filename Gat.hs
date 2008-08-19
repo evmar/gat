@@ -58,7 +58,9 @@ cmdCat args = do
   --(objtype, raw) <- getObjectRaw hash
   --liftIO $ BL.putStr raw
   obj <- getObject hash
-  liftIO $ print obj
+  case obj of
+    Blob raw -> liftIO $ BL.putStr raw
+    x -> liftIO $ print x
 
 cmdDumpIndex args = do
   unless (length args == 0) $
