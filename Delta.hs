@@ -10,33 +10,10 @@ import Control.Monad
 
 import Pack
 
-{-
-
-runSTUArray :: Ix i => (forall s . ST s (STUArray s i e)) -> UArray i e
-newListArray :: (MArray a e m, Ix i) => (i, i) -> [e] -> m (a i e)
-
--}
-type ByteVec s = STUArray s Int Word8
-type Offset = Word32
-
--- applyDelta :: B.ByteString -> B.ByteString -> B.ByteString
--- applyDelta src delta =
---   let outarray = runSTUArray $ do
---     offset <-
-
 getByteWord32 :: Get Word32
 getByteWord32 = do
   b <- getWord8
   return $ fromIntegral b
-
-readOfsVarInt :: Get Offset
-readOfsVarInt = read 0 where
-  read value = do
-    byte <- getWord8
-    let value' = (value `shiftL` 7) + fromIntegral (byte .&. 0x7F)
-    if byte .&. 0x80 /= 0
-      then read value'
-      else return value'
 
 data Delta = Delta {
     d_origSize :: Word32     -- Original (pre-patch) data size.
@@ -46,6 +23,8 @@ data Delta = Delta {
 data DeltaOp = Copy Word32 Word32  -- Copy from source at offset, length bytes.
              | Raw B.ByteString    -- Raw data embedded in delta.
                deriving Show
+
+readDelta :: Get Delta
 readDelta = do
   orig_size <- readDeltaVarInt
   result_size <- readDeltaVarInt
@@ -104,7 +83,19 @@ readDeltaVarInt = read 0 0 where
       then read (shift+7) value'
       else return value'
 
+applyDelta :: B.ByteString -> Delta -> BL.ByteString
+applyDelta src delta = BL.fromChunks substrs where
+  substrs = map apply (d_commands delta)
+  apply (Copy offset length) =
+    B.take (fromIntegral length) $ B.drop (fromIntegral offset) src
+  apply (Raw bytes) = bytes
+
 main = do
-  delta <- B.readFile "testdata/delta"
-  putStrLn $ hexDump delta
-  print $ runGet readDelta delta
+  base <- B.readFile "testdata/delta.base"
+  rawdelta <- B.readFile "testdata/delta"
+  let parse = runGet readDelta rawdelta
+  case parse of
+    (Right delta, rest) | B.null rest -> do
+      print delta
+      BL.putStr $ applyDelta base delta
+    other -> print other
