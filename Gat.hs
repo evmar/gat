@@ -1,10 +1,6 @@
 
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Char8 as BC
-import Control.Monad
 import Control.Monad.Error
-import Data.List
-import System.FilePath
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
