@@ -88,7 +88,6 @@ readRef path = do
 
 resolveRef :: FilePath -> IOE (String, Hash)
 resolveRef ref = do
-  liftIO$ print ("resolving",ref)
   target <- liftIO $ readRef ref
   case target of
     Nothing -> throwError $ "couldn't resolve ref: " ++ ref
