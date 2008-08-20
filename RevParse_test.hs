@@ -10,7 +10,7 @@ assertParse exp inp =
 testParse label exp inp = TestLabel label $ TestCase (assertParse exp inp)
 
 tests = TestList [
-    sha1, symref, parent, grandparent
+    sha1, symref, parent, grandparent, grandparent2, grandparent3
   ]
   where
     hEAD = RevSymRef "HEAD"
@@ -21,5 +21,8 @@ tests = TestList [
     parent = testParse "parent" (RevParent 1 hEAD) "HEAD^"
     grandparent = testParse "grandparent"
       (RevParent 1 (RevParent 1 hEAD)) "HEAD^^"
+    grandparent2 = testParse "grandparent2" (RevAncestor 2 hEAD) "HEAD~2"
+    grandparent3 = testParse "grandparent3"
+      (RevParent 1 (RevAncestor 2 hEAD)) "HEAD~2^"
 
 main = runTestTT tests

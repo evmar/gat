@@ -15,9 +15,10 @@ import ObjectStore (getObject)
 import Refs (resolveRef)
 import Shared
 
-data Rev = RevHash String     -- ^Explicit hash name.
-         | RevParent Int Rev  -- ^Nth grandparent of a Rev.
-         | RevSymRef String   -- ^Name of a branch/tag.
+data Rev = RevHash String       -- ^Explicit hash name.
+         | RevParent Int Rev    -- ^Nth parent of a Rev.
+         | RevAncestor Int Rev  -- ^Nth grandparent of a Rev.
+         | RevSymRef String     -- ^Name of a branch/tag.
          deriving (Eq, Show)
 
 -- |Parse a revision string, like "origin/master~3", into a Rev.
@@ -30,7 +31,7 @@ parseRev input =
 
 p_ref :: Parser Rev
 p_ref = do rev <- (p_sha1 <|> p_symref)
-           modrev <- nested rev (p_parent)
+           modrev <- nested rev (\rev -> p_parent rev <|> p_ancestor rev)
            eof; return modrev
   where
     -- |Sorta like a foldl of parsers: repeatedly parse, feeding output
@@ -45,6 +46,10 @@ p_ref = do rev <- (p_sha1 <|> p_symref)
     p_symref = many1 (alphaNum <|> char '/') >>= return . RevSymRef
     -- Mods alter a Rev.
     p_parent rev = do char '^'; return $ RevParent 1 rev
+    p_ancestor rev = do
+      char '~'
+      num <- many1 digit
+      return $ RevAncestor (read num) rev
 
 
 -- |Resolve a Rev into a Hash.
