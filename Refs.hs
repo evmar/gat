@@ -1,4 +1,8 @@
-module Refs where
+module Refs (
+    fullNameRef
+  , readRef
+  , resolveRef
+) where
 
 import Control.Exception
 import Control.Monad.Error
@@ -38,12 +42,6 @@ packedRefs = do
 stripWhitespace :: String -> String
 stripWhitespace = reverse . dropSpace . reverse . dropSpace where
   dropSpace = dropWhile isSpace
-
-rlookup :: Eq b => b -> [(a,b)] -> Maybe a
-rlookup target ((a,b):xs)
-  | b == target       = Just a
-rlookup target (_:xs) = rlookup target xs
-rlookup target []     = Nothing
 
 -- |Take a name like "foo" and map it to a full name like "refs/heads/foo",
 -- following the resolution rules found in the Git docs.
