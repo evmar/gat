@@ -14,6 +14,7 @@ import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
 import System.Directory
 
+import Delta
 import Object
 import Shared
 
@@ -40,6 +41,12 @@ hexDump :: B.ByteString -> String
 hexDump str =
   concatMap (printf "%02x ") $ take 20 $ B.unpack str
 
+blToString :: BL.ByteString -> B.ByteString
+blToString = B.concat . BL.toChunks
+
+decompressStrict :: B.ByteString -> B.ByteString
+decompressStrict str = blToString $ decompress $ BL.fromChunks [str]
+
 getPackEntry :: FilePath -> Word32 -> IOE RawObject
 getPackEntry file offset = do
   mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".pack") Nothing
@@ -63,9 +70,20 @@ getPackEntry file offset = do
       let expanded = decompress (BL.fromChunks [body])
       return (typ, expanded)
     Right PackOfsDelta -> do
-      let (Right ofs, r') = runGet readDeltaOffset rest
-      --getPackEntry file (offset - ofs)
-      return (TypeBlob, decompress (BL.fromChunks [r']))
+      -- Get the offset to the delta base.
+      let (refoffsete, compressed) = runGet readDeltaOffset rest
+      refoffset <- returnE refoffsete
+      -- Read the delta out of this object.
+      let (deltae, _) = runGet readDelta (decompressStrict compressed)
+      delta <- returnE deltae
+      -- Read the base object.
+      (basetype, baseraw) <- getPackEntry file (offset - refoffset)
+      -- Apply the delta.
+      let result = applyDelta (blToString baseraw) delta
+      unless (BL.length result == (fromIntegral $ d_resultSize delta)) $
+        throwError $ printf "error applying delta: expected %d, got %d bytes"
+                            (d_resultSize delta) (BL.length result)
+      return (basetype, result)
     Right x -> throwError $ "complicated object type: " ++ show x  -- XXX handle these.
   where
     pack_signature = 0x5041434b  -- "PACK"
