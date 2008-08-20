@@ -18,35 +18,12 @@ import Refs
 import RevParse
 import Shared
 
-revToHash :: String -> IOE Hash
-revToHash name = do
-  rev <- ErrorT $ return $ parseRev name
-  expandRev rev
-  where
-    expandRev (RevHash hex) = return $ Hash (fromHex hex)
-    expandRev (RevParent nth rev) = do
-      hash <- expandRev rev
-      getNthParent nth hash
-    expandRev (RevSymRef name) = do
-      (_,hash) <- resolveRef name
-      return hash
-
-    getNthParent nth hash = do
-      -- TODO: obey the "nth".
-      obj <- getObject hash
-      case obj of
-        Commit headers message ->
-          case lookup "parent" headers of
-            Just hex -> return $ Hash (fromHex hex)
-            Nothing -> throwError "commit has no parent"
-        _ -> throwError "object is not a commit"
-
 cmdRef :: [String] -> IOE ()
 cmdRef args = do
   unless (length args == 1) $
     throwError "'ref' takes one argument"
   let [name] = args
-  hash <- revToHash name
+  hash <- resolveRev name
   liftIO $ print hash
 
 cmdCat :: [String] -> IOE ()
@@ -54,7 +31,7 @@ cmdCat args = do
   unless (length args == 1) $
     throwError "'cat' takes one argument"
   let [name] = args
-  hash <- revToHash name
+  hash <- resolveRev name
   --(objtype, raw) <- getObjectRaw hash
   --liftIO $ BL.putStr raw
   obj <- getObject hash
@@ -87,7 +64,7 @@ cmdDiff args = do
       tree2 <- revTree name2
       diffTrees tree1 tree2
   where
-    revTree name = revToHash name >>= findTree
+    revTree name = resolveRev name >>= findTree
 
 commands = [
     ("cat",  cmdCat)
