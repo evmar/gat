@@ -1,6 +1,7 @@
 module Shared where
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Control.Monad.Error
 import Data.Bits
 import Data.Char
@@ -56,3 +57,6 @@ splitMSB byte = (msb, bits) where
   msb = (byte .&. 0x80) /= 0
   bits = byte .&. 0x7F
 
+-- |Convert a ByteString.Lazy to a strict ByteString.
+strictifyBS :: BL.ByteString -> B.ByteString
+strictifyBS = B.concat . BL.toChunks

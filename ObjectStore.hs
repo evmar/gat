@@ -29,7 +29,7 @@ splitAround sep input = do
   return (a, BL.tail b)
 
 -- |Parse an int out of a ByteString.Lazy.
--- Best I can figure out is to repack as a Char8.
+-- Best I can figure out is to repack as a Char8.  :(
 parseIntBL :: BL.ByteString -> Maybe (Int, BC.ByteString)
 parseIntBL = BC.readInt . BC.pack . map w2c . BL.unpack
 
@@ -50,10 +50,10 @@ parseLoose loose = do
 
 -- |Return the path to a loose object.
 objectPath :: Hash -> FilePath
-objectPath hash =
-  let (before, after) = splitAt 2 (hashAsHex hash)
-  in ".git/objects" </> before </> after
+objectPath hash = ".git/objects" </> before </> after
+  where (before, after) = splitAt 2 (hashAsHex hash)
 
+-- |Get a "loose" (found in .git/objects/...) object.
 getLooseObject :: Hash -> IOE RawObject
 getLooseObject hash = do
   let path = objectPath hash
@@ -91,14 +91,11 @@ getObject hash = do
     getLooseObject hash `catchIOErrors` const (getPackObject hash)
   case objtype of
     TypeBlob -> return $ Blob raw
-    TypeTree -> do
-      entries <- ErrorT $ return $ parseTree raw
-      return $ Tree entries
-    TypeCommit -> let (headers, message) = parseCommit raw
-                  in return $ Commit headers message
+    TypeTree -> returnE $ parseTree raw
+    TypeCommit -> return $ parseCommit raw
 
-parseCommit :: BL.ByteString -> ([(String,String)], String)
-parseCommit raw = (headers, message) where
+parseCommit :: BL.ByteString -> Object
+parseCommit raw = Commit headers message where
   (headerlines, messagelines) = breakAround null $ lines (bsToString raw)
   headers = map (breakAround (== ' ')) headerlines
   -- XXX unlines loses whether there was a trailing newline.  do we care?
@@ -115,22 +112,20 @@ findTree hash = do
         Nothing -> throwError "no commit?"
     Tree _ -> return obj
 
-parseTree :: BL.ByteString -> Either String [(String, FilePath, Hash)]
-parseTree raw = do
-  if BL.null raw
-    then return []
-    else
-      case parseTreeEntry raw of
-        Just (mode, path, hash, rest) -> do
-          xs <- parseTree rest
-          return ((mode,path,hash):xs)
-        Nothing ->
-          throwError "error parsing tree entry"
+parseTree :: BL.ByteString -> Either String Object
+parseTree raw | BL.null raw = return $ Tree []
+              | otherwise   = do
+  case parseTreeEntry raw of
+    Just (mode, path, hash, rest) -> do
+      (Tree xs) <- parseTree rest
+      return $ Tree ((mode,path,hash):xs)
+    Nothing ->
+      throwError "error parsing tree entry"
 
 parseTreeEntry :: BL.ByteString -> Maybe (String, FilePath, Hash, BL.ByteString)
 parseTreeEntry raw = do
   -- The header looks like "%s %ld\0".
   (mode, raw')  <- splitAround (c2w ' ')  raw
   (path, raw'') <- splitAround (c2w '\0') raw'
-  let hash = B.concat $ BL.toChunks $ BL.take 20 raw''
-  return (bsToString mode, bsToString path, Hash hash, BL.drop 20 raw'')
+  let (hash, body) = BL.splitAt 20 raw''
+  return (bsToString mode, bsToString path, Hash (strictifyBS hash), body)

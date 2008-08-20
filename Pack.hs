@@ -41,11 +41,8 @@ hexDump :: B.ByteString -> String
 hexDump str =
   concatMap (printf "%02x ") $ take 20 $ B.unpack str
 
-blToString :: BL.ByteString -> B.ByteString
-blToString = B.concat . BL.toChunks
-
 decompressStrict :: B.ByteString -> B.ByteString
-decompressStrict str = blToString $ decompress $ BL.fromChunks [str]
+decompressStrict str = strictifyBS $ decompress $ BL.fromChunks [str]
 
 getPackEntry :: FilePath -> Word32 -> IOE RawObject
 getPackEntry file offset = do
@@ -79,7 +76,7 @@ getPackEntry file offset = do
       -- Read the base object.
       (basetype, baseraw) <- getPackEntry file (offset - refoffset)
       -- Apply the delta.
-      let result = applyDelta (blToString baseraw) delta
+      let result = applyDelta (strictifyBS baseraw) delta
       unless (BL.length result == (fromIntegral $ d_resultSize delta)) $
         throwError $ printf "error applying delta: expected %d, got %d bytes"
                             (d_resultSize delta) (BL.length result)
