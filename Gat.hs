@@ -24,16 +24,20 @@ cmdRef args = do
 
 cmdCat :: [String] -> IOE ()
 cmdCat args = do
-  unless (length args == 1) $
-    throwError "'cat' takes one argument"
-  let [name] = args
+  let options = [
+        Option "" ["raw"] (NoArg True) "dump raw object bytes"
+        ]
+  (raw, name) <-
+    case getOpt Permute options args of
+      (opts, [name], []) -> return (not (null opts), name)
+      (_,    _,      []) ->
+        throwError "expect 1 argument: name of object to cat"
+      (_,    _,    errs) ->
+        throwError $ concat errs ++ usageInfo "x" options
   hash <- resolveRev name
-  --(objtype, raw) <- getObjectRaw hash
-  --liftIO $ BL.putStr raw
-  obj <- getObject hash
-  case obj of
-    Blob raw -> liftIO $ BL.putStr raw
-    x -> liftIO $ print x
+  if raw
+    then getRawObject hash >>= liftIO . BL.putStr . snd
+    else getObject hash >>= liftIO . print
 
 cmdDumpIndex args = do
   unless (length args == 0) $

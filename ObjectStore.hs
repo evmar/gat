@@ -1,5 +1,5 @@
 module ObjectStore (
-    getObject
+    getObject, getRawObject
   , Object(..)
   , findTree
 ) where
@@ -85,10 +85,15 @@ catchIOErrors action fallback =
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
+getRawObject :: Hash -> IOE RawObject
+getRawObject hash =
+  getLooseObject hash `catchIOErrors` const (getPackObject hash)
+
+-- |Fetch an object, from both the objects/../ dirs and one pack file.
+-- TODO: multiple pack files, alternates, etc.
 getObject :: Hash -> IOE Object
 getObject hash = do
-  (objtype, raw) <- do
-    getLooseObject hash `catchIOErrors` const (getPackObject hash)
+  (objtype, raw) <- getRawObject hash
   case objtype of
     TypeBlob -> return $ Blob raw
     TypeTree -> returnE $ parseTree raw
