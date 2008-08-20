@@ -1,3 +1,5 @@
+-- |RevParse manages parsing user-entered names for hashes (like
+-- "origin/master~3") into a parse tree of interdependencies.
 module RevParse (
   Rev(..), parseRev
 ) where
@@ -5,9 +7,9 @@ module RevParse (
 import Control.Monad.Error
 import Text.ParserCombinators.Parsec
 
-data Rev = RevHash String
-         | RevParent Int Rev
-         | RevSymRef String
+data Rev = RevHash String     -- ^Explicit hash name.
+         | RevParent Int Rev  -- ^Nth grandparent of a Rev.
+         | RevSymRef String   -- ^Name of a branch/tag.
          deriving (Eq, Show)
 
 parseRev :: String -> Either String Rev
