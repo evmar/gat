@@ -18,7 +18,11 @@ import ObjectStore
 import Shared
 
 -- One half of a diff: a thing to be diffed.
-data DiffItem = GitItem Hash | TreeItem FilePath (Maybe Hash) deriving Show
+-- It doesn't make sense to construct a DiffItem with neither a hash nor a
+-- FilePath, but we can't enforce that.
+data DiffItem = DiffItem (Maybe Hash) (Maybe FilePath) deriving Show
+diffItemFromHash hash = DiffItem (Just hash) Nothing
+diffItemFromPath path = DiffItem Nothing (Just path)
 
 -- |Compare a cached index info against the result of stat().
 -- Returns True if we think they differ.
@@ -41,7 +45,8 @@ diffAgainstIndex index = do
     let changed = statDiffers entry stat
     liftIO $ print (ie_name entry, changed)
     if changed
-      then return $ Just $ (GitItem (ie_hash entry), TreeItem (ie_name entry) Nothing)
+      then return $ Just $ (diffItemFromHash (ie_hash entry),
+                            diffItemFromPath (ie_name entry))
       else return Nothing
   let pairs = catMaybes allpairs
   -- Here, git does a bunch of filtering/munging of the list of diffs to
@@ -58,7 +63,7 @@ diffAgainstTree tree = do
   mapM_ diffPair (map diffPairFromTreeEntry entries)
   where
     diffPairFromTreeEntry (mode,path,hash) =
-      (GitItem hash, TreeItem path Nothing)
+      (diffItemFromHash hash, diffItemFromPath path)
 
 diffTrees :: Object -> Object -> IOE ()
 diffTrees tree1 tree2 = do
@@ -69,7 +74,7 @@ diffTrees tree1 tree2 = do
   mapM_ diffPair (zipWith diffPairFromTrees e1 e2)
   where
     diffPairFromTrees (_,_,hash1) (_,_,hash2) =
-      (GitItem hash1, GitItem hash2)
+      (diffItemFromHash hash1, diffItemFromHash hash2)
 
 -- |Hash a file as a git-style blob.
 hashFileAsBlob :: FilePath -> IOE Hash
@@ -143,15 +148,14 @@ diffPair (item1, item2) = do
     shortHash (Hash bs) = take 7 $ asHex bs
 
     itemWithHash :: DiffItem -> IOE (DiffItem, Hash)
-    itemWithHash item@(GitItem hash) = return (item, hash)
-    itemWithHash item@(TreeItem path (Just hash)) = return (item, hash)
-    itemWithHash (TreeItem path Nothing) = do
+    itemWithHash item@(DiffItem (Just hash) _) = return (item, hash)
+    itemWithHash (DiffItem Nothing (Just path)) = do
       hash <- hashFileAsBlob path
-      let item = TreeItem path (Just hash)
+      let item = DiffItem (Just hash) (Just path)
       return (item, hash)
 
     withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
-    withItemPath (GitItem hash) use = do
+    withItemPath (DiffItem (Just hash) Nothing) use = do
       (Blob contents) <- getObject hash
       path <- liftIO $ do
         (path, handle) <- openBinaryTempFile "/tmp" "gat-diff-"
@@ -161,4 +165,4 @@ diffPair (item1, item2) = do
       result <- use path  -- XXX catch error
       liftIO $ removeFile path
       return result
-    withItemPath (TreeItem path _) use = use path
+    withItemPath (DiffItem _ (Just path)) use = use path
