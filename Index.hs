@@ -40,14 +40,16 @@ many get = do
 
 data Index = Index {
     in_entries :: [IndexEntry]
-  , in_tree :: [(Int,Int)]
   } deriving Show
 
 readIndex = do
   entrycount <- readHeader
   entries <- sequence (replicate entrycount readEntry)
+  -- The index ends with a series of "extensions".
+  -- So far, we've only seen an empty "tree" extension, so these aren't of much
+  -- use yet.  But we parse it here just to verify it's as we expect.
   exts <- many readExtension
-  return $ Index { in_entries=entries, in_tree=exts }
+  return $ Index { in_entries=entries }
 
 readHeader :: Get Int
 readHeader = do
