@@ -12,6 +12,7 @@ import Text.Printf
 import System.IO.MMap (mmapFileByteString, Mode(..))
 import System.Posix.Types (EpochTime)
 
+import FileMode
 import Shared
 
 readInt :: B.ByteString -> Int
@@ -63,8 +64,10 @@ readHeader = do
 data IndexEntry = IndexEntry {
     ie_ctime :: EpochTime
   , ie_mtime :: EpochTime
-  -- dev, ino, mode
-  -- uid, gid
+  -- TODO: add dev, ino
+  , ie_mode :: GitFileMode
+  , ie_realMode :: Word32  -- Temporary until I flesh out GitFileMode.
+  -- TODO: add uid, gid  (?)
   , ie_size :: Int
   , ie_hash :: Hash
   , ie_flags :: Word8
@@ -110,7 +113,9 @@ readEntry = do
   let name = map w2c $ B.unpack namebytes
   return $ IndexEntry {
     ie_ctime=ctime, ie_mtime=mtime,
-    ie_size=fromIntegral size, ie_hash=hash, ie_flags=flags, ie_name=name
+    ie_mode=modeFromInt (fromIntegral mode), ie_realMode=mode,
+    ie_size=fromIntegral size,
+    ie_hash=hash, ie_flags=flags, ie_name=name
     }
 
 readExtension = do

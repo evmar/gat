@@ -13,6 +13,7 @@ import System.Posix.Files
 import System.Posix.IO
 import System.Process
 
+import FileMode
 import Index
 import ObjectStore
 import Shared
@@ -20,9 +21,14 @@ import Shared
 -- One half of a diff: a thing to be diffed.
 -- It doesn't make sense to construct a DiffItem with neither a hash nor a
 -- FilePath, but we can't enforce that.
-data DiffItem = DiffItem (Maybe Hash) (Maybe FilePath) deriving Show
-diffItemFromHash hash = DiffItem (Just hash) Nothing
-diffItemFromPath path = DiffItem Nothing (Just path)
+data DiffItem = DiffItem {
+    di_mode :: GitFileMode
+  , di_hash :: Maybe Hash
+  , di_path :: Maybe FilePath
+} deriving Show
+
+diffItemFromHash mode hash = DiffItem mode (Just hash) Nothing
+diffItemFromPath mode path = DiffItem mode Nothing (Just path)
 
 -- |Compare a cached index info against the result of stat().
 -- Returns True if we think they differ.
@@ -45,8 +51,8 @@ diffAgainstIndex index = do
     let changed = statDiffers entry stat
     liftIO $ print (ie_name entry, changed)
     if changed
-      then return $ Just $ (diffItemFromHash (ie_hash entry),
-                            diffItemFromPath (ie_name entry))
+      then return $ Just $ (diffItemFromHash (ie_mode entry) (ie_hash entry),
+                            diffItemFromPath (ie_mode entry) (ie_name entry))
       else return Nothing
   let pairs = catMaybes allpairs
   -- Here, git does a bunch of filtering/munging of the list of diffs to
@@ -63,7 +69,8 @@ diffAgainstTree tree = do
   mapM_ diffPair (map diffPairFromTreeEntry entries)
   where
     diffPairFromTreeEntry (mode,path,hash) =
-      (diffItemFromHash hash, diffItemFromPath path)
+      -- XXX path mode should be from stat, probably?
+      (diffItemFromHash mode hash, diffItemFromPath mode path)
 
 diffTrees :: Object -> Object -> IOE ()
 diffTrees tree1 tree2 = do
@@ -73,8 +80,8 @@ diffTrees tree1 tree2 = do
                _ -> throwError "hash aren't trees"
   mapM_ diffPair (zipWith diffPairFromTrees e1 e2)
   where
-    diffPairFromTrees (_,_,hash1) (_,_,hash2) =
-      (diffItemFromHash hash1, diffItemFromHash hash2)
+    diffPairFromTrees (mode1,_,hash1) (mode2,_,hash2) =
+      (diffItemFromHash mode1 hash1, diffItemFromHash mode2 hash2)
 
 -- |Hash a file as a git-style blob.
 hashFileAsBlob :: FilePath -> IOE Hash
@@ -132,9 +139,9 @@ diffPair (item1, item2) = do
   -- XXX test if they're directories and skip
   (item1, hash1) <- itemWithHash item1
   (item2, hash2) <- itemWithHash item2
-  let mode = 0 :: Int  -- FIXME
+  -- XXX use modes properly
   when (hash1 /= hash2) $ do
-    liftIO $ printf "index %s..%s %06o\n" (shortHash hash1) (shortHash hash2) mode
+    liftIO $ printf "index %s..%s %s\n" (shortHash hash1) (shortHash hash2) (modeToString $ di_mode item1)
     withItemPath item1 $ \path1 -> do
     withItemPath item2 $ \path2 -> do
       exit <- liftIO $ runFancyDiffCommand path1 path2
@@ -148,14 +155,14 @@ diffPair (item1, item2) = do
     shortHash (Hash bs) = take 7 $ asHex bs
 
     itemWithHash :: DiffItem -> IOE (DiffItem, Hash)
-    itemWithHash item@(DiffItem (Just hash) _) = return (item, hash)
-    itemWithHash (DiffItem Nothing (Just path)) = do
+    itemWithHash item@(DiffItem _ (Just hash) _) = return (item, hash)
+    itemWithHash (DiffItem mode Nothing (Just path)) = do
       hash <- hashFileAsBlob path
-      let item = DiffItem (Just hash) (Just path)
+      let item = DiffItem mode (Just hash) (Just path)
       return (item, hash)
 
     withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
-    withItemPath (DiffItem (Just hash) Nothing) use = do
+    withItemPath (DiffItem _ (Just hash) Nothing) use = do
       (Blob contents) <- getObject hash
       path <- liftIO $ do
         (path, handle) <- openBinaryTempFile "/tmp" "gat-diff-"
@@ -165,4 +172,4 @@ diffPair (item1, item2) = do
       result <- use path  -- XXX catch error
       liftIO $ removeFile path
       return result
-    withItemPath (DiffItem _ (Just path)) use = use path
+    withItemPath (DiffItem _ _ (Just path)) use = use path

@@ -43,7 +43,8 @@ cmdDumpIndex args = do
   unless (length args == 0) $
     throwError "'dump-index' takes no arguments"
   index <- loadIndex
-  liftIO $ print index
+  liftIO $ forM_ (in_entries index) $ \e -> do
+    printf "%s %o %s\n" (show $ ie_mode e) (ie_realMode e) (ie_name e)
 
 cmdDiffIndex args = do
   unless (length args == 0) $

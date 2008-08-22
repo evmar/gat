@@ -2,6 +2,8 @@ module Object where
 
 import qualified Data.ByteString.Lazy as BL
 import Control.Monad.Error
+
+import FileMode
 import Shared
 
 data ObjectType = TypeCommit | TypeTree | TypeBlob | TypeTag
@@ -9,7 +11,7 @@ data ObjectType = TypeCommit | TypeTree | TypeBlob | TypeTag
 type RawObject = (ObjectType, BL.ByteString)  -- Type, data.
 data Object = Blob BL.ByteString
             | Commit [(String,String)] String
-            | Tree [(String, FilePath, Hash)]
+            | Tree [(GitFileMode, FilePath, Hash)]
             deriving Show
 
 -- |Convert a String to an ObjectType.

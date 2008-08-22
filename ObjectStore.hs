@@ -13,9 +13,11 @@ import Control.Monad
 import Control.Monad.Error
 import Data.Bits
 import Data.ByteString.Internal (c2w, w2c)
+import Data.Char (ord)
 import Data.Word
 import System.FilePath
 
+import FileMode
 import Pack
 import Object
 import Shared
@@ -117,20 +119,33 @@ findTree hash = do
         Nothing -> throwError "no commit?"
     Tree _ -> return obj
 
+type TreeEntry = (GitFileMode, FilePath, Hash)
+
 parseTree :: BL.ByteString -> Either String Object
 parseTree raw | BL.null raw = return $ Tree []
               | otherwise   = do
-  case parseTreeEntry raw of
-    Just (mode, path, hash, rest) -> do
-      (Tree xs) <- parseTree rest
-      return $ Tree ((mode,path,hash):xs)
-    Nothing ->
-      throwError "error parsing tree entry"
+  (entry, rest) <- parseTreeEntry raw
+  (Tree xs) <- parseTree rest
+  return $ Tree (entry:xs)
 
-parseTreeEntry :: BL.ByteString -> Maybe (String, FilePath, Hash, BL.ByteString)
+bsToOctal :: BL.ByteString -> Either String Int
+bsToOctal str = mapM digit (BL.unpack str) >>= return . foldl octal 0 where
+  octal cur digit = cur * 8 + digit
+  digit x =
+    case fromIntegral x - ord '0' of
+      value | value >= 0 && value <= 7 -> return value
+      _ -> throwError $ "bad octal digit: " ++ show x
+
+parseTreeEntry :: BL.ByteString -> Either String (TreeEntry, BL.ByteString)
 parseTreeEntry raw = do
-  -- The header looks like "%s %ld\0".
-  (mode, raw')  <- splitAround (c2w ' ')  raw
-  (path, raw'') <- splitAround (c2w '\0') raw'
-  let (hash, body) = BL.splitAt 20 raw''
-  return (bsToString mode, bsToString path, Hash (strictifyBS hash), body)
+  let header = do
+      -- The header looks like "%s %ld\0".
+      (mode, raw')  <- splitAround (c2w ' ')  raw
+      (path, raw'') <- splitAround (c2w '\0') raw'
+      let (hash, rest) = BL.splitAt 20 raw''
+      return (mode, bsToString path, Hash (strictifyBS hash), rest)
+  case header of
+    Just (modestr, path, hash, rest) -> do
+      mode <- bsToOctal modestr
+      return ((modeFromInt mode, path, hash), rest)
+    Nothing -> throwError "error parsing tree entry"
