@@ -11,7 +11,9 @@ data ObjectType = TypeCommit | TypeTree | TypeBlob | TypeTag
 type RawObject = (ObjectType, BL.ByteString)  -- Type, data.
 data Object = Blob BL.ByteString
             | Commit [(String,String)] String
-            | Tree [(GitFileMode, FilePath, Hash)]
+            | ObTree Tree
+            deriving Show
+data Tree = Tree [(GitFileMode, FilePath, Hash)]
             deriving Show
 
 -- |Convert a String to an ObjectType.

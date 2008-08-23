@@ -15,6 +15,7 @@ import System.Process
 
 import FileMode
 import Index
+import Object
 import ObjectStore
 import Shared
 
@@ -61,23 +62,17 @@ diffAgainstIndex index = do
   mapM_ diffPair pairs
   return ()
 
-diffAgainstTree :: Object -> IOE ()
-diffAgainstTree tree = do
-  entries <- case tree of
-               Tree entries -> return entries
-               _ -> throwError "hash isn't a tree"
+diffAgainstTree :: Tree -> IOE ()
+diffAgainstTree (Tree entries) = do
   mapM_ diffPair (map diffPairFromTreeEntry entries)
   where
     diffPairFromTreeEntry (mode,path,hash) =
       -- XXX path mode should be from stat, probably?
       (diffItemFromHash mode hash, diffItemFromPath mode path)
 
-diffTrees :: Object -> Object -> IOE ()
-diffTrees tree1 tree2 = do
+diffTrees :: Tree -> Tree -> IOE ()
+diffTrees (Tree e1) (Tree e2) = do
   -- XXX this is totally broken because it assumes tree filenames line up.
-  (e1,e2) <- case (tree1,tree2) of
-               (Tree e1,Tree e2) -> return (e1,e2)
-               _ -> throwError "hash aren't trees"
   mapM_ diffPair (zipWith diffPairFromTrees e1 e2)
   where
     diffPairFromTrees (mode1,_,hash1) (mode2,_,hash2) =

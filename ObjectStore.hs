@@ -98,7 +98,7 @@ getObject hash = do
   (objtype, raw) <- getRawObject hash
   case objtype of
     TypeBlob -> return $ Blob raw
-    TypeTree -> returnE $ parseTree raw
+    TypeTree -> returnE $ parseTree raw >>= return . ObTree
     TypeCommit -> return $ parseCommit raw
 
 parseCommit :: BL.ByteString -> Object
@@ -108,20 +108,20 @@ parseCommit raw = Commit headers message where
   -- XXX unlines loses whether there was a trailing newline.  do we care?
   message = unlines messagelines
 
-findTree :: Hash -> IOE Object
+findTree :: Hash -> IOE Tree
 findTree hash = do
   obj <- getObject hash
   case obj of
     Blob _ -> throwError "found blob while looking for tree"
     Commit headers _ ->
       case lookup "tree" headers of
-        Just hash -> getObject (Hash (fromHex hash))
+        Just hash -> findTree (Hash (fromHex hash))
         Nothing -> throwError "no commit?"
-    Tree _ -> return obj
+    ObTree tree -> return tree
 
 type TreeEntry = (GitFileMode, FilePath, Hash)
 
-parseTree :: BL.ByteString -> Either String Object
+parseTree :: BL.ByteString -> Either String Tree
 parseTree raw | BL.null raw = return $ Tree []
               | otherwise   = do
   (entry, rest) <- parseTreeEntry raw
