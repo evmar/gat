@@ -6,23 +6,19 @@ import Data.Bits
 import Data.Word
 import Text.Printf
 
+-- man 2 stat
 s_IFREG = 0o10000
 s_IFDIR = 0o40000
+s_IFLNK = 0o120000
 
 -- |GitFileMode tracks Git's representation of file modes, which is simpler
 -- than the full Unix user/group/etc. distinctions.  Haskell insulates us
 -- from the Unix values of file modes so we need to write out their values
 -- here.
-data GitFileType = GitFileRegular | GitFileDir deriving Show
-data GitFileMode = GitFileMode {
-  fm_executable :: Bool,
-  fm_fileType :: GitFileType,
-  fm_origInt :: Int
-}
-instance Show GitFileMode where
-  show (GitFileMode exe typ int) =
-    "(GitFileMode " ++ show exe ++ " " ++ show typ ++ " " ++
-    printf "%o" int ++ ")"
+data GitFileMode = GitFileRegular Bool
+                 | GitFileDirectory
+                 | GitFileSymlink
+                 deriving (Eq, Show)
 
 testMode :: FileStatus -> FileMode -> Bool
 testMode stat mode =
@@ -30,18 +26,18 @@ testMode stat mode =
 
 -- cache.h:802, canon_mode()
 modeFromStat :: FileStatus -> GitFileMode
-modeFromStat stat | isDirectory stat =
-  GitFileMode False GitFileDir (-1)
+modeFromStat stat | isDirectory stat = GitFileDirectory
 modeFromStat stat | isRegularFile stat =
   let executable = stat `testMode` ownerExecuteMode
-  in GitFileMode executable GitFileRegular (-1)
+  in GitFileRegular executable
 
 modeFromInt :: Int -> GitFileMode
-modeFromInt int | int .&. s_IFDIR /= 0 =
-  GitFileMode False GitFileDir int
-modeFromInt int =
-  GitFileMode False GitFileRegular int
+modeFromInt int | int .&. s_IFDIR == s_IFDIR = GitFileDirectory
+modeFromInt int | int .&. s_IFLNK == s_IFLNK = GitFileSymlink
+modeFromInt int = GitFileRegular (int .&. 1 /= 0)
 
 modeToString :: GitFileMode -> String
-modeToString fm | fm_executable fm = "100755"
-modeToString fm | not (fm_executable fm) = "100644"
+modeToString (GitFileRegular True)  = "100755"
+modeToString (GitFileRegular False) = "100644"
+modeToString GitFileDirectory = "40000"
+modeToString GitFileSymlink = "120000"
