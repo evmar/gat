@@ -31,6 +31,11 @@ modeFromStat stat | isRegularFile stat =
   let executable = stat `testMode` ownerExecuteMode
   in GitFileRegular executable
 
+modeFromPath :: FilePath -> IO GitFileMode
+modeFromPath path = do
+  stat <- getFileStatus path
+  return $ modeFromStat stat
+
 modeFromInt :: Int -> GitFileMode
 modeFromInt int | int .&. s_IFDIR == s_IFDIR = GitFileDirectory
 modeFromInt int | int .&. s_IFLNK == s_IFLNK = GitFileSymlink

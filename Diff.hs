@@ -31,6 +31,10 @@ data DiffItem = DiffItem {
 diffItemFromHash mode hash = DiffItem mode (Just hash) Nothing
 diffItemFromPath mode path = DiffItem mode Nothing (Just path)
 
+diffItemFromStat path = do
+  mode <- modeFromPath path
+  return $ diffItemFromPath mode path
+
 -- |Compare a cached index info against the result of stat().
 -- Returns True if we think they differ.
 statDiffers :: IndexEntry -> FileStatus -> Bool
@@ -64,11 +68,12 @@ diffAgainstIndex index = do
 
 diffAgainstTree :: Tree -> IOE ()
 diffAgainstTree (Tree entries) = do
-  mapM_ diffPair (map diffPairFromTreeEntry entries)
+  diffpairs <-liftIO $ mapM diffPairFromTreeEntry entries
+  mapM_ diffPair diffpairs
   where
-    diffPairFromTreeEntry (mode,path,hash) =
-      -- XXX path mode should be from stat, probably?
-      (diffItemFromHash mode hash, diffItemFromPath mode path)
+    diffPairFromTreeEntry (mode,path,hash) = do
+      localitem <- diffItemFromStat path
+      return (diffItemFromHash mode hash, localitem)
 
 diffTrees :: Tree -> Tree -> IOE ()
 diffTrees (Tree e1) (Tree e2) = do
@@ -129,9 +134,10 @@ runFancyDiffCommand path1 path2 = do
 
 -- |Diff a pair of DiffItems, outputting git-diff-style diffs to stdout.
 diffPair :: (DiffItem, DiffItem) -> IOE ()
+diffPair (item1, item2) | di_mode item1 == di_mode item2
+                       && di_mode item1 == GitFileDirectory = return ()
 diffPair (item1, item2) = do
   -- diff.c:2730
-  -- XXX test if they're directories and skip
   (item1, hash1) <- itemWithHash item1
   (item2, hash2) <- itemWithHash item2
   -- XXX use modes properly
