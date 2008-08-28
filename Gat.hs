@@ -67,11 +67,18 @@ cmdDiff args = do
   where
     revTree name = resolveRev name >>= findTree
 
+cmdDumpTree args = do
+  unless (length args == 1) $
+    throwError "expects one arg"
+  tree <- resolveRev (head args) >>= findTree
+  liftIO $ print tree
+
 commands = [
     ("cat",  cmdCat)
   , ("dump-index", cmdDumpIndex)
   , ("diff-index", cmdDiffIndex)
   , ("diff", cmdDiff)
+  , ("dump-tree", cmdDumpTree)
   , ("ref",  cmdRef)
   ]
 
