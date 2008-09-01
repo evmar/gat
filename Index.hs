@@ -146,5 +146,5 @@ loadIndex = do
   let raw = B.take (B.length mmap - 20) mmap
   let (result, rest) = runGet readIndex raw
   unless (B.length rest == 0) $
-    throwError "index had leftover unparsed data"
+    throwError $ "index had leftover unparsed data: " ++ show (result, rest)
   ErrorT (return result)
