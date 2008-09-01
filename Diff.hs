@@ -27,6 +27,7 @@ data DiffItem = DiffItem {
   , di_hash :: Maybe Hash
   , di_path :: Maybe FilePath
 } deriving Show
+type DiffPair = (DiffItem, DiffItem)
 
 diffItemFromHash mode hash = DiffItem mode (Just hash) Nothing
 diffItemFromPath mode path = DiffItem mode Nothing (Just path)
@@ -34,6 +35,13 @@ diffItemFromPath mode path = DiffItem mode Nothing (Just path)
 diffItemFromStat path = do
   mode <- modeFromPath path
   return $ diffItemFromPath mode path
+
+itemWithHash :: DiffItem -> IOE (DiffItem, Hash)
+itemWithHash item@(DiffItem _ (Just hash) _) = return (item, hash)
+itemWithHash (DiffItem mode Nothing (Just path)) = do
+  hash <- hashFileAsBlob path
+  let item = DiffItem mode (Just hash) (Just path)
+  return (item, hash)
 
 -- |Compare a cached index info against the result of stat().
 -- Returns True if we think they differ.
@@ -48,7 +56,7 @@ statDiffers entry stat =
   in basic_change
 
 -- |Diff the current tree of files against the index.
-diffAgainstIndex :: Index -> IOE ()
+diffAgainstIndex :: Index -> IOE [DiffPair]
 diffAgainstIndex index = do
   allpairs <- forM (in_entries index) $ \entry -> do
     stat <- liftIO $ getFileStatus (ie_name entry)
@@ -63,13 +71,12 @@ diffAgainstIndex index = do
   -- Here, git does a bunch of filtering/munging of the list of diffs to
   -- handle renames and command-line flags.
   liftIO $ print pairs
-  mapM_ diffPair pairs
-  return ()
+  filterM pairDiffers pairs
 
 diffAgainstTree :: Tree -> IOE ()
 diffAgainstTree (Tree entries) = do
-  diffpairs <-liftIO $ mapM diffPairFromTreeEntry entries
-  mapM_ diffPair diffpairs
+  diffpairs <- liftIO $ mapM diffPairFromTreeEntry entries
+  mapM_ showDiff =<< filterM pairDiffers diffpairs
   where
     diffPairFromTreeEntry (mode,path,hash) = do
       localitem <- diffItemFromStat path
@@ -78,7 +85,8 @@ diffAgainstTree (Tree entries) = do
 diffTrees :: Tree -> Tree -> IOE ()
 diffTrees (Tree e1) (Tree e2) = do
   -- XXX this is totally broken because it assumes tree filenames line up.
-  mapM_ diffPair (zipWith diffPairFromTrees e1 e2)
+  pairs <- filterM pairDiffers (zipWith diffPairFromTrees e1 e2)
+  mapM_ showDiff pairs
   where
     diffPairFromTrees (mode1,_,hash1) (mode2,_,hash2) =
       (diffItemFromHash mode1 hash1, diffItemFromHash mode2 hash2)
@@ -132,11 +140,20 @@ runFancyDiffCommand path1 path2 = do
         -- TODO: trailing whitespace.
         _ -> line
 
+pairDiffers :: DiffPair -> IOE Bool
+pairDiffers (item1, item2) | di_mode item1 == di_mode item2
+                          && di_mode item1 == GitFileDirectory = return False
+pairDiffers (item1, item2) = do
+  -- diff.c:2730
+  (item1, hash1) <- itemWithHash item1
+  (item2, hash2) <- itemWithHash item2
+  -- XXX use modes properly
+  return (hash1 /= hash2)
+
 -- |Diff a pair of DiffItems, outputting git-diff-style diffs to stdout.
-diffPair :: (DiffItem, DiffItem) -> IOE ()
-diffPair (item1, item2) | di_mode item1 == di_mode item2
-                       && di_mode item1 == GitFileDirectory = return ()
-diffPair (item1, item2) = do
+-- Should be filtered with pairDiffers first.
+showDiff :: DiffPair -> IOE ()
+showDiff (item1, item2) = do
   -- diff.c:2730
   (item1, hash1) <- itemWithHash item1
   (item2, hash2) <- itemWithHash item2
@@ -154,13 +171,6 @@ diffPair (item1, item2) = do
   where
     shortHash :: Hash -> String
     shortHash (Hash bs) = take 7 $ asHex bs
-
-    itemWithHash :: DiffItem -> IOE (DiffItem, Hash)
-    itemWithHash item@(DiffItem _ (Just hash) _) = return (item, hash)
-    itemWithHash (DiffItem mode Nothing (Just path)) = do
-      hash <- hashFileAsBlob path
-      let item = DiffItem mode (Just hash) (Just path)
-      return (item, hash)
 
     withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
     withItemPath (DiffItem _ (Just hash) Nothing) use = do

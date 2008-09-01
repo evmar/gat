@@ -50,7 +50,8 @@ cmdDiffIndex args = do
   unless (length args == 0) $
     throwError "'diff-index' takes no arguments"
   index <- loadIndex
-  diffAgainstIndex index
+  pairs <- diffAgainstIndex index
+  mapM_ showDiff pairs
 
 cmdDiff args = do
   case args of
