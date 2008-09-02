@@ -2,6 +2,9 @@ module ObjectStore (
     getObject, getRawObject
   , Object(..)
   , findTree
+
+  -- Exposed for testing.
+  , getLooseObject
 ) where
 
 import qualified Data.ByteString.Char8 as BC
@@ -56,9 +59,8 @@ objectPath hash = ".git/objects" </> before </> after
   where (before, after) = splitAt 2 (hashAsHex hash)
 
 -- |Get a "loose" (found in .git/objects/...) object.
-getLooseObject :: Hash -> IOE RawObject
-getLooseObject hash = do
-  let path = objectPath hash
+getLooseObject :: FilePath -> IOE RawObject
+getLooseObject path = do
   compressed <- liftIO $ BL.readFile path
   checkHeader compressed
   -- The normal format for loose objects is a compressed blob with a textual
@@ -89,7 +91,7 @@ catchIOErrors action fallback =
 -- TODO: multiple pack files, alternates, etc.
 getRawObject :: Hash -> IOE RawObject
 getRawObject hash =
-  getLooseObject hash `catchIOErrors` const (getPackObject hash)
+  getLooseObject (objectPath hash) `catchIOErrors` const (getPackObject hash)
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
