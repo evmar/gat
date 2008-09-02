@@ -14,6 +14,7 @@ import Codec.Compression.Zlib (decompress)
 import Control.Exception
 import Control.Monad
 import Control.Monad.Error
+import Data.Binary.Strict.Get
 import Data.Bits
 import Data.ByteString.Internal (c2w, w2c)
 import Data.Char (ord)
@@ -41,17 +42,17 @@ parseIntBL = BC.readInt . BC.pack . map w2c . BL.unpack
 -- |Parse a loose git blob, returning @(type, content)@.
 parseLoose :: BL.ByteString -> Either String RawObject
 parseLoose loose = do
-  -- The header looks like "%s %ld\0".
-  let parse = do
-      (typestr, loose') <- splitAround (c2w ' ')  loose
-      (sizestr, rest)   <- splitAround (c2w '\0') loose'
-      (size, _) <- parseIntBL sizestr  -- XXX Unused?
-      return (typestr, rest)
-  case parse of
-    Nothing -> throwError $ "error parsing loose object header"
-    Just (typestr, raw) -> do
-      typ <- objectTypeFromString $ map w2c $ BL.unpack typestr
-      return (typ, raw)
+  let bs = strictifyBS loose
+  let (parse, rest) = runGet readLoose (strictifyBS loose)
+  typestr <- parse
+  typ <- objectTypeFromString $ map w2c (B.unpack typestr)
+  return (typ, BL.fromChunks [rest])
+  where
+    readLoose = do
+      -- The header looks like "%s %ld\0".
+      typestr <- readStringTo (c2w ' ')
+      sizestr <- readStringTo 0  -- XXX unused?
+      return typestr
 
 -- |Return the path to a loose object.
 objectPath :: Hash -> FilePath

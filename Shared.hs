@@ -3,6 +3,7 @@ module Shared where
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Control.Monad.Error
+import Data.Binary.Strict.Get
 import Data.Bits
 import Data.Char
 import Data.Word
@@ -60,3 +61,11 @@ splitMSB byte = (msb, bits) where
 -- |Convert a ByteString.Lazy to a strict ByteString.
 strictifyBS :: BL.ByteString -> B.ByteString
 strictifyBS = B.concat . BL.toChunks
+
+-- |Read (in the Get monad) the string terminated by a Word8.
+readStringTo :: Word8 -> Get B.ByteString
+readStringTo stop = do
+  text <- spanOf (/= stop)
+  skip 1
+  return text
+

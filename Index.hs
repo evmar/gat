@@ -21,12 +21,6 @@ readInt str =
     Just (int, _) -> int
     Nothing -> 0  -- XXX should we do something smarter here?
 
-readStringTo :: Word8 -> Get B.ByteString
-readStringTo stop = do
-  text <- spanOf (/= stop)
-  skip 1
-  return text
-
 -- |Like parsec's @many@: repeats a Get until the end of the input.
 many :: Get a -> Get [a]
 many get = do
