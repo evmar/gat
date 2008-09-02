@@ -45,6 +45,7 @@ cmdDumpIndex args = do
   index <- loadIndex
   liftIO $ forM_ (in_entries index) $ \e -> do
     printf "%s %o %s\n" (show $ ie_mode e) (ie_realMode e) (ie_name e)
+  liftIO $ print (in_tree index)
 
 cmdDiffIndex args = do
   unless (length args == 0) $
