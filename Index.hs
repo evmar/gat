@@ -38,8 +38,10 @@ many get = do
       xs <- many get
       return (x:xs)
 
+data IndexTree = IndexTree [Hash] [IndexTree] deriving Show
 data Index = Index {
     in_entries :: [IndexEntry]
+  , in_tree :: IndexTree
   } deriving Show
 
 readIndex = do
@@ -48,8 +50,8 @@ readIndex = do
   -- The index ends with a series of "extensions".
   -- So far, we've only seen an empty "tree" extension, so these aren't of much
   -- use yet.  But we parse it here just to verify it's as we expect.
-  exts <- many readExtension
-  return $ Index { in_entries=entries }
+  tree <- readExtension
+  return $ Index { in_entries=entries, in_tree=tree }
 
 readHeader :: Get Int
 readHeader = do
@@ -128,16 +130,21 @@ readExtension = do
   body <- readTree  -- XXX should be limited to end of extension, not input.
   return body
 
+-- Like cache-tree.c:cache_tree_read().
 readTree = do
   readStringTo 0  -- Skip initial NUL-terminated string.
   -- "%d %d\n" % (entrycount, subtreecount)
   entrycountstr <- readStringTo (c2w ' ')
   subtreecountstr <- readStringTo (c2w '\n')
-  unless (readInt entrycountstr == -1 && readInt subtreecountstr == 0) $
-    fail "tree had unhandled values"
-  --forM [0..readInt subtreecountstr] $ do
-  --  readTree
-  return (readInt entrycountstr, readInt subtreecountstr)
+  -- Note we only read zero or one hashes depending on the entry count.
+  entries <- if readInt entrycountstr > 0
+               then do str <- getByteString 20; return [Hash str]
+               else return []
+  subtrees <- sequence $ replicate (readInt subtreecountstr) $ do
+    sub <- readTree
+    -- XXX cache_tree_sub() here... unclear what it does.
+    return sub
+  return $ IndexTree entries subtrees
 
 loadIndex :: IOE Index
 loadIndex = do
