@@ -1,4 +1,12 @@
-module Diff where
+-- | The Diff module covers diffing: comparing files between trees, indexes,
+-- and the working copy; running the diff commands and coloring the output;
+-- hashing on-disk files.
+module Diff (
+    diffAgainstIndex
+  , diffAgainstTree
+  , diffTrees
+  , showDiff
+) where
 
 import qualified Data.ByteString.Lazy as BL
 import Control.Monad
@@ -19,7 +27,8 @@ import Object
 import ObjectStore
 import Shared
 
--- One half of a diff: a thing to be diffed.
+-- | One half of a diff: a thing to be diffed.  If it has a path it refers
+-- to an on-disk file; if it only has a hash then it's in the object database.
 -- It doesn't make sense to construct a DiffItem with neither a hash nor a
 -- FilePath, but we can't enforce that.
 data DiffItem = DiffItem {
@@ -27,15 +36,19 @@ data DiffItem = DiffItem {
   , di_hash :: Maybe Hash
   , di_path :: Maybe FilePath
 } deriving Show
+-- | A pair of potentially-differing blobs.
 type DiffPair = (DiffItem, DiffItem)
 
+-- Construct a DiffItem from a mode and either a hash or a path.
 diffItemFromHash mode hash = DiffItem mode (Just hash) Nothing
 diffItemFromPath mode path = DiffItem mode Nothing (Just path)
 
+-- Construct a DiffItem from a path by calling stat().
 diffItemFromStat path = do
   mode <- modeFromPath path
   return $ diffItemFromPath mode path
 
+-- Extract the hash field from a DiffItem, lazily filling it in if necessary.
 itemWithHash :: DiffItem -> IOE (DiffItem, Hash)
 itemWithHash item@(DiffItem _ (Just hash) _) = return (item, hash)
 itemWithHash (DiffItem mode Nothing (Just path)) = do
@@ -43,8 +56,8 @@ itemWithHash (DiffItem mode Nothing (Just path)) = do
   let item = DiffItem mode (Just hash) (Just path)
   return (item, hash)
 
--- |Compare a cached index info against the result of stat().
--- Returns True if we think they differ.
+-- Compare cached index info against the result of stat().
+-- Returns True if we think they differ (e.g. the file doesn't match the index).
 statDiffers :: IndexEntry -> FileStatus -> Bool
 statDiffers entry stat =
   -- XXX check all the fields on this sucker, read-cache.c:202
@@ -55,7 +68,7 @@ statDiffers entry stat =
         ]
   in basic_change
 
--- |Diff the current tree of files against the index.
+-- | Diff the current working directory of files against an index.
 diffAgainstIndex :: Index -> IOE [DiffPair]
 diffAgainstIndex index = do
   allpairs <- forM (in_entries index) $ \entry -> do
@@ -70,28 +83,28 @@ diffAgainstIndex index = do
   let pairs = catMaybes allpairs
   -- Here, git does a bunch of filtering/munging of the list of diffs to
   -- handle renames and command-line flags.
-  liftIO $ print pairs
   filterM pairDiffers pairs
 
-diffAgainstTree :: Tree -> IOE ()
+-- | Diff the current working directory of files against a Tree.
+diffAgainstTree :: Tree -> IOE [DiffPair]
 diffAgainstTree (Tree entries) = do
   diffpairs <- liftIO $ mapM diffPairFromTreeEntry entries
-  mapM_ showDiff =<< filterM pairDiffers diffpairs
+  filterM pairDiffers diffpairs
   where
     diffPairFromTreeEntry (mode,path,hash) = do
       localitem <- diffItemFromStat path
       return (diffItemFromHash mode hash, localitem)
 
-diffTrees :: Tree -> Tree -> IOE ()
+-- | Diff one tree against another.
+-- XXX this is totally broken because it assumes tree filenames line up.
+diffTrees :: Tree -> Tree -> IOE [DiffPair]
 diffTrees (Tree e1) (Tree e2) = do
-  -- XXX this is totally broken because it assumes tree filenames line up.
-  pairs <- filterM pairDiffers (zipWith diffPairFromTrees e1 e2)
-  mapM_ showDiff pairs
+  filterM pairDiffers (zipWith diffPairFromTrees e1 e2)
   where
     diffPairFromTrees (mode1,_,hash1) (mode2,_,hash2) =
       (diffItemFromHash mode1 hash1, diffItemFromHash mode2 hash2)
 
--- |Hash a file as a git-style blob.
+-- Hash a file as a git-style blob.
 hashFileAsBlob :: FilePath -> IOE Hash
 hashFileAsBlob path = do
   -- FIXME: we use a pipe to sha1sum for now.
@@ -111,7 +124,7 @@ hashFileAsBlob path = do
     ExitSuccess -> do
       return $ Hash (fromHex (take 40 output))
 
--- |Run "diff" over two paths, coloring the output.
+-- Run "diff" over two paths, coloring the output.
 runFancyDiffCommand :: FilePath -> FilePath -> IO ExitCode
 runFancyDiffCommand path1 path2 = do
   (_,out,_,pid) <- runInteractiveProcess "diff" ["-u", path1, path2]
@@ -140,6 +153,7 @@ runFancyDiffCommand path1 path2 = do
         -- TODO: trailing whitespace.
         _ -> line
 
+-- Return true if the items in the pair are different.
 pairDiffers :: DiffPair -> IOE Bool
 pairDiffers (item1, item2) | di_mode item1 == di_mode item2
                           && di_mode item1 == GitFileDirectory = return False
@@ -150,7 +164,7 @@ pairDiffers (item1, item2) = do
   -- XXX use modes properly
   return (hash1 /= hash2)
 
--- |Diff a pair of DiffItems, outputting git-diff-style diffs to stdout.
+-- | Diff a pair of DiffItems, outputting git-diff-style diffs to stdout.
 -- Should be filtered with pairDiffers first.
 showDiff :: DiffPair -> IOE ()
 showDiff (item1, item2) = do
@@ -172,15 +186,17 @@ showDiff (item1, item2) = do
     shortHash :: Hash -> String
     shortHash (Hash bs) = take 7 $ asHex bs
 
+    -- Given a DiffItem, run an action over it as file, constructing a
+    -- temporary path for the DiffItem if necessary.
     withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
-    withItemPath (DiffItem _ (Just hash) Nothing) use = do
+    withItemPath (DiffItem _ (Just hash) Nothing) action = do
       (Blob contents) <- getObject hash
       path <- liftIO $ do
         (path, handle) <- openBinaryTempFile "/tmp" "gat-diff-"
         BL.hPut handle contents
         hClose handle
         return path
-      result <- use path  -- XXX catch error
+      result <- action path  -- XXX catch error
       liftIO $ removeFile path
       return result
-    withItemPath (DiffItem _ _ (Just path)) use = use path
+    withItemPath (DiffItem _ _ (Just path)) action = action path

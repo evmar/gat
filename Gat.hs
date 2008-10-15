@@ -55,17 +55,19 @@ cmdDiffIndex args = do
   mapM_ showDiff pairs
 
 cmdDiff args = do
-  case args of
-    [] -> do
-      tree <- revTree "HEAD"
-      diffAgainstTree tree
-    [name] -> do
-      tree <- revTree name
-      diffAgainstTree tree
-    [name1,name2] -> do
-      tree1 <- revTree name1
-      tree2 <- revTree name2
-      diffTrees tree1 tree2
+  diffpairs <-
+    case args of
+      [] -> do
+        tree <- revTree "HEAD"
+        diffAgainstTree tree
+      [name] -> do
+        tree <- revTree name
+        diffAgainstTree tree
+      [name1,name2] -> do
+        tree1 <- revTree name1
+        tree2 <- revTree name2
+        diffTrees tree1 tree2
+  mapM_ showDiff diffpairs
   where
     revTree name = resolveRev name >>= findTree
 
