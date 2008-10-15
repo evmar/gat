@@ -1,3 +1,8 @@
+-- | The Delta module parses and applies the delta format found within Git
+-- pack files.
+--
+-- See patch-delta.c in the git code.
+
 module Delta (
     Delta(..)
   , readDelta
@@ -6,24 +11,27 @@ module Delta (
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import Data.Array.ST
 import Data.Binary.Strict.Get
-import Data.STRef
 import Data.Bits
 import Data.Word
 import Control.Monad
 
 import Shared (splitMSB)
 
+-- | A Delta contains some metadata about what it's delta-ing and a sequence
+-- of DeltaOp commands that describe the transformation.
 data Delta = Delta {
-    d_origSize :: Word32     -- Original (pre-patch) data size.
-  , d_resultSize :: Word32   -- Resulting (post-patch) data size.
-  , d_commands :: [DeltaOp]  -- Delta commands.
+    d_origSize :: Word32     -- ^ Original (pre-patch) data size.
+  , d_resultSize :: Word32   -- ^ Resulting (post-patch) data size.
+  , d_commands :: [DeltaOp]  -- ^ Delta commands.
   } deriving Show
-data DeltaOp = Copy Word32 Word32  -- Copy from source at offset, length bytes.
-             | Raw B.ByteString    -- Raw data embedded in delta.
+
+-- | A DeltaOp is one operation contained within a Delta.
+data DeltaOp = Copy Word32 Word32  -- ^ Copy from source at offset, length bytes.
+             | Paste B.ByteString  -- ^ Paste raw data embedded in delta.
                deriving Show
 
+-- | Parse a raw delta ByteString into a Delta.
 readDelta :: Get Delta
 readDelta = do
   orig_size <- readDeltaVarInt
@@ -45,7 +53,7 @@ readDelta = do
       case split of
         (True,  opcode) -> readCopy opcode
         (False, 0)      -> fail "zero opcode"
-        (False, opcode) -> readRaw opcode
+        (False, opcode) -> readPaste opcode
 
     readCopy :: Word8 -> Get DeltaOp
     readCopy opcode = do
@@ -54,11 +62,12 @@ readDelta = do
       let size = if rawsize == 0 then 0x10000 else rawsize
       return $ Copy offset size
 
-    readRaw :: Word8 -> Get DeltaOp
-    readRaw length = do
+    readPaste :: Word8 -> Get DeltaOp
+    readPaste length = do
       raw <- getByteString (fromIntegral length)
-      return $ Raw raw
+      return $ Paste raw
 
+    -- Read a delta varint, given the length byte.
     -- This is super-ugly and I'm unhappy with it.  Hmm.
     readPacked :: Word8 -> Get Word32
     readPacked bits = do
@@ -81,6 +90,8 @@ readDelta = do
       b <- getWord8
       return $ fromIntegral b
 
+-- Read the varint format found in the delta header.
+-- delta.h:get_delta_hdr_size().
 readDeltaVarInt :: Get Word32
 readDeltaVarInt = read 0 0 where
   read shift value = do
@@ -90,9 +101,10 @@ readDeltaVarInt = read 0 0 where
       then read (shift+7) value'
       else return value'
 
+-- Apply a Delta to a ByteString.
 applyDelta :: B.ByteString -> Delta -> BL.ByteString
 applyDelta src delta = BL.fromChunks substrs where
   substrs = map apply (d_commands delta)
   apply (Copy offset length) =
     B.take (fromIntegral length) $ B.drop (fromIntegral offset) src
-  apply (Raw bytes) = bytes
+  apply (Paste bytes) = bytes
