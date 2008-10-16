@@ -1,0 +1,21 @@
+Cabal-Version: >= 1.2
+Build-Type: Simple
+Name: gat
+Version: 0.1
+Synopsis: Git implementation
+Description:
+  Gat is a non-functioning implementation of Git.
+Category: Development
+License: GPL
+License-File: COPYING
+Author: Evan Martin
+Maintainer: martine@danga.com
+Copyright: (c) 2008 Evan Martin <martine@danga.com>
+Homepage: http://neugierig.org/software/git/?r=gat
+
+Executable gat
+  Main-Is: Gat.hs
+  Build-Depends: base, bytestring, directory, filepath, mtl, parsec,
+                 process, unix,
+  -- These come from Hackage:
+                 mmap, binary-strict, zlib
