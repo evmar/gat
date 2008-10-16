@@ -1,9 +1,9 @@
--- |RevParse manages parsing user-entered names for hashes (like
--- "origin/master~3") into parse trees and targets hashes.
+-- | RevParse manages parsing user-entered names for hashes (like
+-- \"origin\/master~3\") into parse trees and targets hashes.
 module RevParse (
   resolveRev,
 
-  -- * Exposed for testing
+  -- Exposed for testing
   Rev(..), parseRev, resolve
 ) where
 
@@ -15,13 +15,13 @@ import ObjectStore (getObject)
 import Refs (resolveRef)
 import Shared
 
-data Rev = RevHash String       -- ^Explicit hash name.
-         | RevParent Int Rev    -- ^Nth parent of a Rev.
-         | RevAncestor Int Rev  -- ^Nth grandparent of a Rev.
-         | RevSymRef String     -- ^Name of a branch/tag.
+data Rev = RevHash String       -- ^ Explicit hash name.
+         | RevParent Int Rev    -- ^ Nth parent of a Rev.
+         | RevAncestor Int Rev  -- ^ Nth grandparent of a Rev.
+         | RevSymRef String     -- ^ Name of a branch\/tag.
          deriving (Eq, Show)
 
--- |Parse a revision string, like "origin/master~3", into a Rev.
+-- |Parse a revision string, like \"origin\/master~3\", into a Rev.
 parseRev :: String -> Either String Rev
 parseRev input =
   case parse p_ref "" input of
@@ -69,6 +69,6 @@ resolve (RevSymRef name) = do
   (_,hash) <- resolveRef name
   return hash
 
--- |Resolve a string like "origin/master~3" into a Hash.
+-- | Resolve a string like \"origin\/master~3\" into a Hash.
 resolveRev :: String -> IOE Hash
 resolveRev input = returnE (parseRev input) >>= resolve
