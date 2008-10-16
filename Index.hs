@@ -1,4 +1,14 @@
-module Index where
+-- | The git \"index\" is a disk-based packed binary file that represents
+-- a tree of files (complete with cached last-stat info).  It is used for
+-- quick diffing\/status queries, to stage commits, and to hold extra data
+-- during merges.
+
+module Index (
+    Index(..)
+  , IndexEntry(..)
+  , IndexTree(..)
+  , loadIndex
+) where
 
 import Control.Monad
 import Control.Monad.Error
@@ -15,19 +25,22 @@ import System.Posix.Types (EpochTime)
 import FileMode
 import Shared
 
+-- Parse an integer out of a ByteString.
+-- XXX is there really no better way to do this?
 readInt :: B.ByteString -> Int
 readInt str =
   case B8.readInt $ B8.pack $ map w2c $ B.unpack str of
     Just (int, _) -> int
     Nothing -> 0  -- XXX should we do something smarter here?
 
+-- Parse a string up to a terminator and advance past the terminator.
 readStringTo :: Word8 -> Get B.ByteString
 readStringTo stop = do
   text <- spanOf (/= stop)
   skip 1
   return text
 
--- |Like parsec's @many@: repeats a Get until the end of the input.
+-- Like parsec's @many@: repeats a Get until the end of the input.
 many :: Get a -> Get [a]
 many get = do
   done <- isEmpty
@@ -38,7 +51,12 @@ many get = do
       xs <- many get
       return (x:xs)
 
+-- | An IndexTree holds a a tree of hashes associated with an Index.
+-- (XXX needs more investigation.)
 data IndexTree = IndexTree [Hash] [IndexTree] deriving Show
+
+-- | An Index is a collection of "IndexEntry"s along with an IndexTree
+-- extension.  (XXX: is there ever more than one tree?  Needs more analysis.)
 data Index = Index {
     in_entries :: [IndexEntry]
   , in_tree :: IndexTree
@@ -65,6 +83,9 @@ readHeader = do
     fail "bad version"
   return $ fromIntegral entries
 
+-- | An IndexEntry is a single entry in an Index, representing a single
+-- file along with its hash, mode, as well as stat()-related info used to
+-- decide whether an on-disk file has changed.
 data IndexEntry = IndexEntry {
     ie_ctime :: EpochTime
   , ie_mtime :: EpochTime
@@ -146,6 +167,7 @@ readTree = do
     return sub
   return $ IndexTree entries subtrees
 
+-- | Load and parse @.git\/index@.
 loadIndex :: IOE Index
 loadIndex = do
   mmap <- liftIO $ mmapFileByteString ".git/index" Nothing
