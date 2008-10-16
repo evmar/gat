@@ -1,4 +1,8 @@
-module Pack where
+-- A git pack file efficiently stores a bunch of objects, compressed and
+-- possibly deltafied against each other.
+module Pack (
+  getPackObject
+) where
 
 import Control.Monad
 import Control.Monad.Error
@@ -35,15 +39,14 @@ decodePackObjectType 6 = return $ PackOfsDelta
 decodePackObjectType 7 = return $ PackRefDelta
 decodePackObjectType n = throwError $ "bad object type: " ++ show n
 
+-- Convert a filename to a path to the pack file with that name.
 packDataPath = (".git/objects/pack/" ++)
 
-hexDump :: B.ByteString -> String
-hexDump str =
-  concatMap (printf "%02x ") $ take 20 $ B.unpack str
-
+-- Decompress gzipped data strictly.
 decompressStrict :: B.ByteString -> B.ByteString
 decompressStrict str = strictifyBS $ decompress $ BL.fromChunks [str]
 
+-- Get an entry from a pack file at a given byte offset.
 getPackEntry :: FilePath -> Word32 -> IOE RawObject
 getPackEntry file offset = do
   mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".pack") Nothing
@@ -107,6 +110,8 @@ getPackEntry file offset = do
         then readVariableSize size'
         else return size'
 
+-- Read the packed integer used in the PackOfsDelta header (indicating where
+-- the delta data is).
 readDeltaOffset = do
   (msb, bits) <- liftM splitMSB getWord8
   (if msb then overflow else return) (fromIntegral bits)
@@ -117,9 +122,11 @@ readDeltaOffset = do
       let offset' = ((offset + 1) `shiftL` 7) + fromIntegral bits
       (if msb then overflow else return) offset'
 
+-- Get a byte as a Word32.
 getByteAsWord32 :: Get Word32
 getByteAsWord32 = liftM fromIntegral getWord8
 
+-- Dump a pack index file.
 dumpIndex file = do
   mmap <- mmapFileByteString (packDataPath file ++ ".idx") Nothing
   let (Right stuff,rest) = runGet get mmap
@@ -135,11 +142,14 @@ dumpIndex file = do
       entries <- sequence (replicate 10 getIndexEntry)
       return (fanout, entries)
 
+-- Parse an entry out of a pack index.
+getIndexEntry :: Get (Word32, Hash)
 getIndexEntry = do
   ofs <- getWord32be
   hash <- getByteString 20
   return (ofs, Hash hash)
 
+-- Look for a given hash in a given pack index.
 findInPackIndex :: FilePath -> Hash -> IOE (Maybe Word32)
 findInPackIndex file hash@(Hash hashbytes) = do
   mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".idx") Nothing
@@ -173,6 +183,7 @@ findInPackIndex file hash@(Hash hashbytes) = do
       count <- getWord32be
       return (fromIntegral count)
 
+-- | Fetch an object, trying all pack files available.
 getPackObject :: Hash -> IOE RawObject
 getPackObject hash = do
   packfiles <- liftIO $ findPackFiles
