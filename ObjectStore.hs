@@ -1,6 +1,7 @@
+-- | ObjectStore represents the git repository's collection of objects,
+-- mostly found under @.git\/objects@ as loose files or in pack files.
 module ObjectStore (
     getObject, getRawObject
-  , Object(..)
   , findTree
 
   -- Exposed for testing.
@@ -58,7 +59,7 @@ objectPath :: Hash -> FilePath
 objectPath hash = ".git/objects" </> before </> after
   where (before, after) = splitAt 2 (hashAsHex hash)
 
--- |Get a "loose" (found in .git/objects/...) object.
+-- | Get a \"loose\" (found in @.git\/objects\/@...) object.
 getLooseObject :: FilePath -> IOE RawObject
 getLooseObject path = do
   compressed <- liftIO $ BL.readFile path
@@ -103,6 +104,7 @@ getObject hash = do
     TypeTree -> returnE $ parseTree raw >>= return . ObTree
     TypeCommit -> return $ parseCommit raw
 
+-- Parse a raw commit object into an Object.
 parseCommit :: BL.ByteString -> Object
 parseCommit raw = Commit headers message where
   (headerlines, messagelines) = breakAround null $ lines (bsToString raw)
@@ -110,6 +112,8 @@ parseCommit raw = Commit headers message where
   -- XXX unlines loses whether there was a trailing newline.  do we care?
   message = unlines messagelines
 
+-- | @findTree hash@ fetches objects, starting at @hash@, following commits
+-- until it finds a Tree object.
 findTree :: Hash -> IOE Tree
 findTree hash = do
   obj <- getObject hash
@@ -123,6 +127,7 @@ findTree hash = do
 
 type TreeEntry = (GitFileMode, FilePath, Hash)
 
+-- Parse a raw tree object's bytes into an Object.
 parseTree :: BL.ByteString -> Either String Tree
 parseTree raw | BL.null raw = return $ Tree []
               | otherwise   = do
@@ -130,6 +135,7 @@ parseTree raw | BL.null raw = return $ Tree []
   (Tree xs) <- parseTree rest
   return $ Tree (entry:xs)
 
+-- Parse a ByteString as an octal integer.
 bsToOctal :: BL.ByteString -> Either String Int
 bsToOctal str = mapM digit (BL.unpack str) >>= return . foldl octal 0 where
   octal cur digit = cur * 8 + digit
