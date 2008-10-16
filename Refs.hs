@@ -1,7 +1,8 @@
+-- | Refs are references to git objects stored outside of the object database.
+-- Typically they live as text files under @.git\/refs@ but they can also be
+-- \"packed\" into @.git\/packed-refs@.
 module Refs (
-    fullNameRef
-  , readRef
-  , resolveRef
+  resolveRef
 ) where
 
 import Control.Exception
@@ -43,8 +44,9 @@ stripWhitespace :: String -> String
 stripWhitespace = reverse . dropSpace . reverse . dropSpace where
   dropSpace = dropWhile isSpace
 
--- |Take a name like "foo" and map it to a full name like "refs/heads/foo",
--- following the resolution rules found in the Git docs.
+-- | Take a name like "foo" and map it to a full name like "refs\/heads\/foo",
+-- finding the proper directory by examining which files are available and
+-- following the resolution rules found in the git docs.
 fullNameRef :: String -> IO (Maybe String)
 fullNameRef name = firstTrue $ map testPath sympaths
   where
@@ -68,6 +70,8 @@ fullNameRef name = firstTrue $ map testPath sympaths
     sympaths = map (</> name) prefixes ++ ["refs/remotes" </> name </> "HEAD"]
 
 
+-- Read a ref (e.g. "refs/heads/master") to either a hash or another
+-- ref name.
 readRef :: FilePath -> IO (Maybe String)
 readRef path = do
   plain <- try readPlain
@@ -86,6 +90,8 @@ readRef path = do
       packed <- packedRefs
       return $ liftM fst $ find (\(_, p) -> p == path) packed
 
+-- | Resolve a ref (like \"refs\/heads\/master\") to a hash, following symbolic
+-- references between refs.
 resolveRef :: FilePath -> IOE (String, Hash)
 resolveRef ref = do
   target <- liftIO $ readRef ref
