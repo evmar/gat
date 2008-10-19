@@ -7,8 +7,11 @@ import System.Exit
 import System.IO
 import Text.Printf
 
+import Commit
 import Diff
 import Index
+import Log
+import Object
 import ObjectStore
 import Refs
 import RevParse
@@ -77,12 +80,28 @@ cmdDumpTree args = do
   tree <- resolveRev (head args) >>= findTree
   liftIO $ print tree
 
+cmdLog args = do
+  let options = [
+        Option "n" []
+          (ReqArg (\n opts -> opts { logoptions_commitLimit=(read n) }) "LIMIT")
+          "limit number of commits to show"
+        ]
+  opts <-
+    case getOpt Permute options args of
+      (o, [], []) -> return (foldl (flip id) defaultLogOptions o)
+      (_, _,  []) -> throwError "expects no args"
+      (_, _,  errs) ->
+        throwError $ concat errs ++ usageInfo "x" options
+  (branch, commithash) <- resolveRef "HEAD"
+  showLog opts commithash
+
 commands = [
     ("cat",  cmdCat)
   , ("dump-index", cmdDumpIndex)
   , ("diff-index", cmdDiffIndex)
   , ("diff", cmdDiff)
   , ("dump-tree", cmdDumpTree)
+  , ("log", cmdLog)
   , ("ref",  cmdRef)
   ]
 
