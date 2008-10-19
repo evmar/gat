@@ -12,6 +12,7 @@ module Object (
 import qualified Data.ByteString.Lazy as BL
 import Control.Monad.Error
 
+import Commit
 import FileMode
 import Shared
 
@@ -27,8 +28,7 @@ type RawObject = (ObjectType, BL.ByteString)  -- Type, data.
 
 -- | Object represents a parsed object.
 data Object = Blob BL.ByteString  -- ^ blob of bytes (a file's contents)
-            | Commit [(String,String)] String
-              -- ^ (key,value) metadata and commit message
+            | ObCommit Commit
             | ObTree Tree
             deriving Show
 

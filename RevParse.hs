@@ -10,6 +10,7 @@ module RevParse (
 import Control.Monad.Error
 import Text.ParserCombinators.Parsec
 
+import Commit
 import Object (Object(..))
 import ObjectStore (getObject)
 import Refs (resolveRef)
@@ -60,10 +61,10 @@ resolve (RevParent nth rev) = do
   -- TODO: obey the "nth".
   obj <- getObject hash
   case obj of
-    Commit headers message ->
-      case lookup "parent" headers of
-        Just hex -> return $ Hash (fromHex hex)
-        Nothing -> throwError "commit has no parent"
+    ObCommit commit ->
+      case commit_parents commit of
+        (hex:_) -> return $ Hash (fromHex hex)
+        _ -> throwError "commit has no parent"
     _ -> throwError "object is not a commit"
 resolve (RevSymRef name) = do
   (_,hash) <- resolveRef name

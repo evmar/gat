@@ -21,6 +21,7 @@ import Data.Char (ord)
 import Data.Word
 import System.FilePath
 
+import Commit
 import FileMode
 import Pack
 import Object
@@ -102,15 +103,9 @@ getObject hash = do
   case objtype of
     TypeBlob -> return $ Blob raw
     TypeTree -> returnE $ parseTree raw >>= return . ObTree
-    TypeCommit -> return $ parseCommit raw
-
--- Parse a raw commit object into an Object.
-parseCommit :: BL.ByteString -> Object
-parseCommit raw = Commit headers message where
-  (headerlines, messagelines) = breakAround null $ lines (bsToString raw)
-  headers = map (breakAround (== ' ')) headerlines
-  -- XXX unlines loses whether there was a trailing newline.  do we care?
-  message = unlines messagelines
+    TypeCommit -> do
+      commit <- returnE $ parseCommit (bsToString raw)
+      return (ObCommit commit)
 
 -- | @findTree hash@ fetches objects, starting at @hash@, following commits
 -- until it finds a Tree object.
@@ -119,10 +114,7 @@ findTree hash = do
   obj <- getObject hash
   case obj of
     Blob _ -> throwError "found blob while looking for tree"
-    Commit headers _ ->
-      case lookup "tree" headers of
-        Just hash -> findTree (Hash (fromHex hash))
-        Nothing -> throwError "no commit?"
+    ObCommit commit -> findTree (Hash (fromHex (commit_tree commit)))
     ObTree tree -> return tree
 
 type TreeEntry = (GitFileMode, FilePath, Hash)
