@@ -1,0 +1,6 @@
+tree 6cab39a126bb985be8ff6e3907f648d55c2a5c57
+parent e6fe5236a1b7fe63f3481cd60cda17a76e433c65
+author Evan Martin <martine@danga.com> 1224448950 -0700
+committer Evan Martin <martine@danga.com> 1224448950 -0700
+
+generate docs in makefile
