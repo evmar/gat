@@ -2,7 +2,7 @@ all: gat
 gat: *.hs
 	ghc --make -o gat Gat.hs
 clean:
-	rm -f *.hi *.o RevParse_test gat
+	rm -f *.hi *.o gat
 opt:
 	ghc --make -o gat -O2 Gat.hs
 profile:
