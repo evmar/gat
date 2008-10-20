@@ -26,6 +26,7 @@ import FileMode
 import Pack
 import Object
 import Shared
+import State
 
 -- |@splitAround sep str@ finds @sep@ in @str@ and returns the before and after
 -- parts.
@@ -91,46 +92,43 @@ getLooseObject path = do
 
 bsToString = map w2c . BL.unpack
 
--- |Like @catchJust ioErrors@, but working with IOE instead of IO.
-catchIOErrors :: IOE a -> (IOError -> IOE a) -> IOE a
-catchIOErrors action fallback =
-  ErrorT $ catchJust ioErrors (runErrorT action) (runErrorT . fallback)
-
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
-getRawObject :: Hash -> IO RawObject
+getRawObject :: Hash -> GitM RawObject
 getRawObject hash = do
-  obj <- getLooseObject (objectPath hash)
+  obj <- liftIO $ getLooseObject (objectPath hash)
   case obj of
     Just obj -> return obj
     Nothing -> getPackObject hash
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
-getObject :: Hash -> IOE Object
+getObject :: Hash -> GitM Object
 getObject hash = do
-  (objtype, raw) <- liftIO $ getRawObject hash
+  (objtype, raw) <- getRawObject hash
   case objtype of
     TypeBlob -> return $ Blob raw
-    TypeTree -> returnE $ parseTree raw >>= return . ObTree
+    TypeTree -> do
+      tree <- forceError (parseTree raw)
+      return (ObTree tree)
     TypeCommit -> do
-      commit <- returnE $ parseCommit (bsToString raw)
+      commit <- forceError (parseCommit (bsToString raw))
       return (ObCommit commit)
 
 -- | @findTree hash@ fetches objects, starting at @hash@, following commits
 -- until it finds a Tree object.
-findTree :: Hash -> IOE Tree
+findTree :: Hash -> GitM Tree
 findTree hash = do
   obj <- getObject hash
   case obj of
-    Blob _ -> throwError "found blob while looking for tree"
+    Blob _ -> fail "found blob while looking for tree"
     ObCommit commit -> findTree (Hash (fromHex (commit_tree commit)))
     ObTree tree -> return tree
 
 type TreeEntry = (GitFileMode, FilePath, Hash)
 
 -- Parse a raw tree object's bytes into an Object.
-parseTree :: BL.ByteString -> Either String Tree
+parseTree :: BL.ByteString -> ErrorOr Tree
 parseTree raw | BL.null raw = return $ Tree []
               | otherwise   = do
   (entry, rest) <- parseTreeEntry raw
@@ -138,7 +136,7 @@ parseTree raw | BL.null raw = return $ Tree []
   return $ Tree (entry:xs)
 
 -- Parse a ByteString as an octal integer.
-bsToOctal :: BL.ByteString -> Either String Int
+bsToOctal :: BL.ByteString -> ErrorOr Int
 bsToOctal str = mapM digit (BL.unpack str) >>= return . foldl octal 0 where
   octal cur digit = cur * 8 + digit
   digit x =

@@ -15,6 +15,7 @@ import Object (Object(..))
 import ObjectStore (getObject)
 import Refs (resolveRef)
 import Shared
+import State
 
 data Rev = RevHash String       -- ^ Explicit hash name.
          | RevParent Int Rev    -- ^ Nth parent of a Rev.
@@ -54,7 +55,7 @@ p_ref = do rev <- (p_sha1 <|> p_symref)
 
 
 -- |Resolve a Rev into a Hash.
-resolve :: Rev -> IOE Hash
+resolve :: Rev -> GitM Hash
 resolve (RevHash hex) = return $ Hash (fromHex hex)
 resolve (RevParent nth rev) = do
   hash <- resolve rev
@@ -64,12 +65,17 @@ resolve (RevParent nth rev) = do
     ObCommit commit ->
       case commit_parents commit of
         (hex:_) -> return $ Hash (fromHex hex)
-        _ -> throwError "commit has no parent"
-    _ -> throwError "object is not a commit"
+        _ -> fail "commit has no parent"
+    _ -> fail "object is not a commit"
 resolve (RevSymRef name) = do
-  (_,hash) <- resolveRef name
+  (_,hash) <- liftIO $ (resolveRef name >>= forceError)
   return hash
 
 -- | Resolve a string like \"origin\/master~3\" into a Hash.
-resolveRev :: String -> IOE Hash
-resolveRev input = returnE (parseRev input) >>= resolve
+resolveRev :: String -> GitM (ErrorOr Hash)
+resolveRev input =
+  case parseRev input of
+    Left err -> return (throwError err)
+    Right rev -> do
+      hash <- resolve rev
+      return (Right hash)

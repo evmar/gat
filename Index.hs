@@ -168,12 +168,12 @@ readTree = do
   return $ IndexTree entries subtrees
 
 -- | Load and parse @.git\/index@.
-loadIndex :: IOE Index
+loadIndex :: IO Index
 loadIndex = do
-  mmap <- liftIO $ mmapFileByteString ".git/index" Nothing
+  mmap <- mmapFileByteString ".git/index" Nothing
   -- Last 20 bytes are SHA1.
   let raw = B.take (B.length mmap - 20) mmap
-  let (result, rest) = runGet readIndex raw
+  (Right result, rest) <- return $ runGet readIndex raw
   unless (B.length rest == 0) $
-    throwError $ "index had leftover unparsed data: " ++ show (result, rest)
-  ErrorT (return result)
+    fail $ "index had leftover unparsed data: " ++ show (result, rest)
+  return result

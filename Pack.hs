@@ -21,6 +21,7 @@ import System.Directory
 import Delta
 import Object
 import Shared
+import State
 
 -- Git's "Documentation/pack-format.txt" was very helpful for writing this.
 
@@ -40,16 +41,17 @@ decodePackObjectType 7 = return $ PackRefDelta
 decodePackObjectType n = throwError $ "bad object type: " ++ show n
 
 -- Convert a filename to a path to the pack file with that name.
-packDataPath = (".git/objects/pack/" ++)
+packDataPath :: PackFile -> FilePath
+packDataPath pack = (".git/objects/pack/" ++ pack_name pack)
 
 -- Decompress gzipped data strictly.
 decompressStrict :: B.ByteString -> B.ByteString
 decompressStrict str = strictifyBS $ decompress $ BL.fromChunks [str]
 
 -- Get an entry from a pack file at a given byte offset.
-getPackEntry :: FilePath -> Word32 -> IO RawObject
-getPackEntry file offset = do
-  mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".pack") Nothing
+getPackEntry :: PackFile -> Word32 -> IO RawObject
+getPackEntry pack offset = do
+  mmap <- liftIO $ mmapFileByteString (packDataPath pack ++ ".pack") Nothing
   (Right (signature, version, entry_count), _) <- return $ runGet readHeader mmap
   when (signature /= pack_signature) $
     fail "bad pack signature"
@@ -73,7 +75,7 @@ getPackEntry file offset = do
       -- Read the delta out of this object.
       (Right delta, _) <- return $ runGet readDelta (decompressStrict compressed)
       -- Read the base object.
-      (basetype, baseraw) <- getPackEntry file (offset - refoffset)
+      (basetype, baseraw) <- getPackEntry pack (offset - refoffset)
       -- Apply the delta.
       let result = applyDelta (strictifyBS baseraw) delta
       unless (BL.length result == (fromIntegral $ d_resultSize delta)) $
@@ -146,12 +148,18 @@ getIndexEntry = do
   return (ofs, Hash hash)
 
 -- Look for a given hash in a given pack index.
-findInPackIndex :: FilePath -> Hash -> IO (Maybe Word32)
-findInPackIndex file hash@(Hash hashbytes) = do
-  mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".idx") Nothing
+findInPackIndex :: PackFile -> Hash -> IO (PackFile, Maybe Word32)
+findInPackIndex pack hash@(Hash hashbytes) = do
+  (pack, mmap) <-
+    case pack_mmapIndex pack of
+      Just mmap -> do
+        return (pack, mmap)
+      Nothing -> do
+        mmap <- liftIO $ mmapFileByteString (packDataPath pack ++ ".idx") Nothing
+        return (pack { pack_mmapIndex=Just mmap }, mmap)
   -- XXX check index version.
   let (Right offset, _) = runGet get mmap
-  return offset
+  return (pack, offset)
   where
     get = do
       -- First 256 words are fanout:
@@ -180,24 +188,40 @@ findInPackIndex file hash@(Hash hashbytes) = do
       return (fromIntegral count)
 
 -- | Fetch an object, trying all pack files available.
-getPackObject :: Hash -> IO RawObject
+getPackObject :: Hash -> GitM RawObject
 getPackObject hash = do
-  packfiles <- findPackFiles
-  entry <- firstTrue $ flip map packfiles $ \file -> do
-    offset <- findInPackIndex file hash
-    case offset of
-      Nothing -> return Nothing
-      Just offset -> do
-        entry <- getPackEntry file offset
-        return (Just entry)
-  case entry of
-    Just entry -> return entry
-    Nothing -> fail "couldn't find hash in pack files"
+  packs <- getPackState
+  (packs, obj) <- liftIO $ tryPacks packs
+  modify $ \state -> state { state_pack=PackState (Just packs) }
+  return obj
+  where
+    tryPacks :: [PackFile] -> IO ([PackFile], RawObject)
+    tryPacks (pack:rest) = do
+      (pack, offset) <- findInPackIndex pack hash
+      case offset of
+        Nothing -> do
+          (rest, obj) <- tryPacks rest
+          return (pack:rest, obj)
+        Just offset -> do
+          obj <- getPackEntry pack offset
+          return (pack:rest, obj)
+    tryPacks [] = fail "couldn't find hash in pack files"
 
--- |Get a list of all pack files (without a path or an extension).
+getPackState :: GitM [PackFile]
+getPackState = do
+  (PackState packs) <- gets state_pack
+  case packs of
+    Just packs -> return packs
+    Nothing -> do
+      files <- liftIO $ findPackFiles
+      let packs = map (\name -> PackFile name Nothing Nothing) files
+      putPackState packs
+      return packs
+
+-- Get a list of all pack files (without a path or an extension).
 findPackFiles :: IO [FilePath]
 findPackFiles = do
-  files <- getDirectoryContents (packDataPath "")
+  files <- getDirectoryContents (".git/objects/pack")
   return $ map dropIdxSuffix $ filter (".idx" `isSuffixOf`) files
   where
     dropIdxSuffix path = take (length path - length ".idx") path

@@ -16,16 +16,17 @@ import ObjectStore
 import Refs
 import RevParse
 import Shared
+import State
 
-cmdRef :: [String] -> IOE ()
+cmdRef :: [String] -> GitM ()
 cmdRef args = do
   unless (length args == 1) $
-    throwError "'ref' takes one argument"
+    fail "'ref' takes one argument"
   let [name] = args
   hash <- resolveRev name
   liftIO $ print hash
 
-cmdCat :: [String] -> IOE ()
+cmdCat :: [String] -> GitM ()
 cmdCat args = do
   let options = [
         Option "" ["raw"] (NoArg True) "dump raw object bytes"
@@ -34,52 +35,64 @@ cmdCat args = do
     case getOpt Permute options args of
       (opts, [name], []) -> return (not (null opts), name)
       (_,    _,      []) ->
-        throwError "expect 1 argument: name of object to cat"
+        fail "expect 1 argument: name of object to cat"
       (_,    _,    errs) ->
-        throwError $ concat errs ++ usageInfo "x" options
+        fail $ concat errs ++ usageInfo "x" options
   hash <- resolveRev name
-  if raw
-    then liftIO (getRawObject hash) >>= liftIO . BL.putStr . snd
-    else getObject hash >>= liftIO . print
+  case hash of
+    Left err -> fail err
+    Right hash ->
+      if raw
+        then do
+          (typ, obj) <- getRawObject hash
+          liftIO $ BL.putStr obj
+        else getObject hash >>= liftIO . print
 
-cmdDumpIndex args = do
+cmdDumpIndex :: [String] -> GitM ()
+cmdDumpIndex args = liftIO $ do
   unless (length args == 0) $
-    throwError "'dump-index' takes no arguments"
+    fail "'dump-index' takes no arguments"
   index <- loadIndex
-  liftIO $ forM_ (in_entries index) $ \e -> do
+  forM_ (in_entries index) $ \e -> do
     printf "%s %o %s\n" (show $ ie_mode e) (ie_realMode e) (ie_name e)
-  liftIO $ print (in_tree index)
+  print (in_tree index)
 
+cmdDiffIndex :: [String] -> GitM ()
 cmdDiffIndex args = do
   unless (length args == 0) $
-    throwError "'diff-index' takes no arguments"
-  index <- loadIndex
-  pairs <- diffAgainstIndex index
+    fail "'diff-index' takes no arguments"
+  index <- liftIO loadIndex
+  pairs <- liftIO $ diffAgainstIndex index
   mapM_ showDiff pairs
 
+cmdDiff :: [String] -> GitM ()
 cmdDiff args = do
   diffpairs <-
     case args of
       [] -> do
         tree <- revTree "HEAD"
-        diffAgainstTree tree
+        liftIO $ diffAgainstTree tree
       [name] -> do
         tree <- revTree name
-        diffAgainstTree tree
+        liftIO $ diffAgainstTree tree
       [name1,name2] -> do
         tree1 <- revTree name1
         tree2 <- revTree name2
-        diffTrees tree1 tree2
+        liftIO $ diffTrees tree1 tree2
   mapM_ showDiff diffpairs
   where
-    revTree name = resolveRev name >>= findTree
+    revTree :: String -> GitM Tree
+    revTree name = do
+      hash <- resolveRev name >>= forceError
+      findTree hash
 
 cmdDumpTree args = do
   unless (length args == 1) $
-    throwError "expects one arg"
-  tree <- resolveRev (head args) >>= findTree
+    fail "expects one arg"
+  tree <- resolveRev (head args) >>= forceError >>= findTree
   liftIO $ print tree
 
+cmdLog :: [String] -> GitM ()
 cmdLog args = do
   let options = [
         Option "n" []
@@ -89,10 +102,10 @@ cmdLog args = do
   opts <-
     case getOpt Permute options args of
       (o, [], []) -> return (foldl (flip id) defaultLogOptions o)
-      (_, _,  []) -> throwError "expects no args"
+      (_, _,  []) -> fail "expects no args"
       (_, _,  errs) ->
-        throwError $ concat errs ++ usageInfo "x" options
-  (branch, commithash) <- resolveRef "HEAD"
+        fail $ concat errs ++ usageInfo "x" options
+  (branch, commithash) <- liftIO $ (resolveRef "HEAD") >>= forceError
   showLog opts commithash
 
 commands = [
@@ -119,10 +132,8 @@ main = do
       (cmd:args) -> do
         case lookup cmd commands of
           Just cmdfunc -> do
-            res <- runErrorT $ cmdfunc args
-            case res of
-              Left err -> do hPutStrLn stderr err; return (ExitFailure 1)
-              Right _ -> return ExitSuccess
+            runGit $ cmdfunc args
+            return ExitSuccess
           _ -> usage $ "unknown command: '" ++ cmd ++ "'"
       _ -> usage $ "must provide command"
   exitWith exit

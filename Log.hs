@@ -7,6 +7,7 @@ import Commit
 import Object
 import ObjectStore
 import Shared
+import State
 
 -- | Options for showLog.  Mostly a proof of concept for now.
 data LogOptions = LogOptions {
@@ -16,7 +17,7 @@ data LogOptions = LogOptions {
 defaultLogOptions = LogOptions (-1)
 
 -- | Driver for "gat log" -- display a log with various options set.
-showLog :: LogOptions -> Hash -> IOE ()
+showLog :: LogOptions -> Hash -> GitM ()
 showLog (LogOptions {logoptions_commitLimit=0}) hash = return ()
 showLog opts hash = do
   commit <- getObject hash
@@ -27,7 +28,7 @@ showLog opts hash = do
       case commit_parents commit of
         (parent:_) -> showLog opts' (Hash (fromHex parent))
         _ -> return ()
-    _ -> throwError $ "hash " ++ hashAsHex hash ++ " not a commit?"
+    _ -> fail $ "hash " ++ hashAsHex hash ++ " not a commit?"
 
 -- | Show a single Commit in a form similar to "git log".
 showCommit :: Hash -> Commit -> String

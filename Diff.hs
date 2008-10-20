@@ -26,6 +26,7 @@ import Index
 import Object
 import ObjectStore
 import Shared
+import State
 
 -- | One half of a diff: a thing to be diffed.  If it has a path it refers
 -- to an on-disk file; if it only has a hash then it's in the object database.
@@ -49,7 +50,7 @@ diffItemFromStat path = do
   return $ diffItemFromPath mode path
 
 -- Extract the hash field from a DiffItem, lazily filling it in if necessary.
-itemWithHash :: DiffItem -> IOE (DiffItem, Hash)
+itemWithHash :: DiffItem -> IO (DiffItem, Hash)
 itemWithHash item@(DiffItem _ (Just hash) _) = return (item, hash)
 itemWithHash (DiffItem mode Nothing (Just path)) = do
   hash <- hashFileAsBlob path
@@ -69,7 +70,7 @@ statDiffers entry stat =
   in basic_change
 
 -- | Diff the current working directory of files against an index.
-diffAgainstIndex :: Index -> IOE [DiffPair]
+diffAgainstIndex :: Index -> IO [DiffPair]
 diffAgainstIndex index = do
   allpairs <- forM (in_entries index) $ \entry -> do
     stat <- liftIO $ getFileStatus (ie_name entry)
@@ -86,7 +87,7 @@ diffAgainstIndex index = do
   filterM pairDiffers pairs
 
 -- | Diff the current working directory of files against a Tree.
-diffAgainstTree :: Tree -> IOE [DiffPair]
+diffAgainstTree :: Tree -> IO [DiffPair]
 diffAgainstTree (Tree entries) = do
   diffpairs <- liftIO $ mapM diffPairFromTreeEntry entries
   filterM pairDiffers diffpairs
@@ -97,7 +98,7 @@ diffAgainstTree (Tree entries) = do
 
 -- | Diff one tree against another.
 -- XXX this is totally broken because it assumes tree filenames line up.
-diffTrees :: Tree -> Tree -> IOE [DiffPair]
+diffTrees :: Tree -> Tree -> IO [DiffPair]
 diffTrees (Tree e1) (Tree e2) = do
   filterM pairDiffers (zipWith diffPairFromTrees e1 e2)
   where
@@ -105,11 +106,11 @@ diffTrees (Tree e1) (Tree e2) = do
       (diffItemFromHash mode1 hash1, diffItemFromHash mode2 hash2)
 
 -- Hash a file as a git-style blob.
-hashFileAsBlob :: FilePath -> IOE Hash
+hashFileAsBlob :: FilePath -> IO Hash
 hashFileAsBlob path = do
   -- FIXME: we use a pipe to sha1sum for now.
   -- Should probably use haskell-gcrypt's SHA1.
-  (output, exit) <- liftIO $ do
+  (output, exit) <- do
     content <- readFile path
     (inp,out,err,pid) <- runInteractiveCommand "sha1sum"
     hPutStr inp $ printf "blob %u\0" (length content)
@@ -120,7 +121,7 @@ hashFileAsBlob path = do
 
     return (output, exit)
   case exit of
-    ExitFailure n -> throwError $ printf "sha1sum '%s' failed: %d" path n
+    ExitFailure n -> fail $ printf "sha1sum '%s' failed: %d" path n
     ExitSuccess -> do
       return $ Hash (fromHex (take 40 output))
 
@@ -154,7 +155,7 @@ runFancyDiffCommand path1 path2 = do
         _ -> line
 
 -- Return true if the items in the pair are different.
-pairDiffers :: DiffPair -> IOE Bool
+pairDiffers :: DiffPair -> IO Bool
 pairDiffers (item1, item2) | di_mode item1 == di_mode item2
                           && di_mode item1 == GitFileDirectory = return False
 pairDiffers (item1, item2) = do
@@ -166,11 +167,11 @@ pairDiffers (item1, item2) = do
 
 -- | Diff a pair of DiffItems, outputting git-diff-style diffs to stdout.
 -- Should be filtered with pairDiffers first.
-showDiff :: DiffPair -> IOE ()
+showDiff :: DiffPair -> GitM ()
 showDiff (item1, item2) = do
   -- diff.c:2730
-  (item1, hash1) <- itemWithHash item1
-  (item2, hash2) <- itemWithHash item2
+  (item1, hash1) <- liftIO $ itemWithHash item1
+  (item2, hash2) <- liftIO $ itemWithHash item2
   -- XXX use modes properly
   when (hash1 /= hash2) $ do
     liftIO $ printf "index %s..%s %s\n" (shortHash hash1) (shortHash hash2) (modeToString $ di_mode item1)
@@ -180,7 +181,7 @@ showDiff (item1, item2) = do
       case exit of
         ExitSuccess -> return ()
         ExitFailure 1 -> return ()  -- diff returns this?
-        ExitFailure n -> throwError $ printf "diff failed: %d" n
+        ExitFailure n -> fail $ printf "diff failed: %d" n
 
   where
     shortHash :: Hash -> String
@@ -188,7 +189,7 @@ showDiff (item1, item2) = do
 
     -- Given a DiffItem, run an action over it as file, constructing a
     -- temporary path for the DiffItem if necessary.
-    withItemPath :: DiffItem -> (FilePath -> IOE a) -> IOE a
+    withItemPath :: DiffItem -> (FilePath -> GitM a) -> GitM a
     withItemPath (DiffItem _ (Just hash) Nothing) action = do
       (Blob contents) <- getObject hash
       path <- liftIO $ do

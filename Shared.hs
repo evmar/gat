@@ -2,7 +2,7 @@
 module Shared (
     breakAround
   , firstTrue
-  , IOE, returnE
+  , ErrorOr, forceError
   , asHex
   , Hash(..), hashAsHex
   , isHashString
@@ -19,12 +19,12 @@ import Data.Char
 import Data.Word
 import Text.Printf
 
--- | IOE is an Error monad wrapped around IO.  It's used for IO operations
--- that may produce errors (represented as @Left String@).
-type IOE a = ErrorT String IO a
--- | Lift a plain error (@Either String a@) into IOE.
-returnE :: Either String a -> IOE a
-returnE = ErrorT . return
+-- | An alias for @Either String a@, for things that may fail with a String.
+type ErrorOr a = Either String a
+-- | Force an ErrorOr to either a monad failure or the ok value.
+forceError :: (MonadIO m) => ErrorOr a -> m a
+forceError (Left err) = fail err
+forceError (Right ok) = return ok
 
 -- | A SHA-1 hash.
 newtype Hash = Hash B.ByteString deriving Eq

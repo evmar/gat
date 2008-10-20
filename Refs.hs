@@ -92,13 +92,13 @@ readRef path = do
 
 -- | Resolve a ref (like \"refs\/heads\/master\") to a hash, following symbolic
 -- references between refs.
-resolveRef :: FilePath -> IOE (String, Hash)
+resolveRef :: FilePath -> IO (ErrorOr (String, Hash))
 resolveRef ref = do
-  target <- liftIO $ readRef ref
+  target <- readRef ref
   case target of
-    Nothing -> throwError $ "couldn't resolve ref: " ++ ref
+    Nothing -> return $ throwError $ "couldn't resolve ref: " ++ ref
     Just target -> do
       if isHashString target
-        then return (ref, Hash (fromHex target))
+        then return $ Right (ref, Hash (fromHex target))
         else resolveRef target
 
