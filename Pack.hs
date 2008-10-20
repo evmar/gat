@@ -197,14 +197,14 @@ findInPackIndex pack hash@(Hash hashbytes) = do
       return (fromIntegral count)
 
 -- | Fetch an object, trying all pack files available.
-getPackObject :: Hash -> GitM RawObject
+getPackObject :: Hash -> GitM (Maybe RawObject)
 getPackObject hash = do
   packs <- getPackState
   (packs, obj) <- liftIO $ tryPacks packs
   modify $ \state -> state { state_pack=PackState (Just packs) }
   return obj
   where
-    tryPacks :: [PackFile] -> IO ([PackFile], RawObject)
+    tryPacks :: [PackFile] -> IO ([PackFile], Maybe RawObject)
     tryPacks (pack:rest) = do
       (pack, offset) <- findInPackIndex pack hash
       case offset of
@@ -213,8 +213,8 @@ getPackObject hash = do
           return (pack:rest, obj)
         Just offset -> do
           (pack, obj) <- getPackEntry pack offset
-          return (pack:rest, obj)
-    tryPacks [] = fail "couldn't find hash in pack files"
+          return (pack:rest, Just obj)
+    tryPacks [] = return ([], Nothing)
 
 getPackState :: GitM [PackFile]
 getPackState = do

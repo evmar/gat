@@ -96,10 +96,14 @@ bsToString = map w2c . BL.unpack
 -- TODO: multiple pack files, alternates, etc.
 getRawObject :: Hash -> GitM RawObject
 getRawObject hash = do
-  obj <- liftIO $ getLooseObject (objectPath hash)
+  obj <- getPackObject hash
   case obj of
     Just obj -> return obj
-    Nothing -> getPackObject hash
+    Nothing -> do
+      obj <- liftIO $ getLooseObject (objectPath hash)
+      case obj of
+        Just obj -> return obj
+        Nothing -> fail "can't find object"
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
