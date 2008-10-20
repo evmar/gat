@@ -47,22 +47,20 @@ decompressStrict :: B.ByteString -> B.ByteString
 decompressStrict str = strictifyBS $ decompress $ BL.fromChunks [str]
 
 -- Get an entry from a pack file at a given byte offset.
-getPackEntry :: FilePath -> Word32 -> IOE RawObject
+getPackEntry :: FilePath -> Word32 -> IO RawObject
 getPackEntry file offset = do
   mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".pack") Nothing
-  let result = fst $ runGet readHeader mmap
-  (signature, version, entry_count) <- ErrorT $ return result
+  (Right (signature, version, entry_count), _) <- return $ runGet readHeader mmap
   when (signature /= pack_signature) $
-    throwError "bad pack signature"
+    fail "bad pack signature"
   when (version /= 2) $
-    throwError "bad pack version"
+    fail "bad pack version"
 
   let entry_raw = B.drop (fromIntegral offset) mmap
-  let (header, rest) = runGet readObjectHeader entry_raw
-  (typint, size) <- returnE header
+  (Right (typint, size), rest) <- return $ runGet readObjectHeader entry_raw
   let body = B.take (fromIntegral size + 10000) rest
   case decodePackObjectType typint of
-    Left error -> throwError error
+    Left error -> fail error
     Right (PackSimple typ) -> do
       -- We rely on zlib to know when to stop decompressing.
       -- XXX does passing it the remainder of the buffer cause the mmap to
@@ -71,20 +69,18 @@ getPackEntry file offset = do
       return (typ, expanded)
     Right PackOfsDelta -> do
       -- Get the offset to the delta base.
-      let (refoffsete, compressed) = runGet readDeltaOffset rest
-      refoffset <- returnE refoffsete
+      (Right refoffset, compressed) <- return $ runGet readDeltaOffset rest
       -- Read the delta out of this object.
-      let (deltae, _) = runGet readDelta (decompressStrict compressed)
-      delta <- returnE deltae
+      (Right delta, _) <- return $ runGet readDelta (decompressStrict compressed)
       -- Read the base object.
       (basetype, baseraw) <- getPackEntry file (offset - refoffset)
       -- Apply the delta.
       let result = applyDelta (strictifyBS baseraw) delta
       unless (BL.length result == (fromIntegral $ d_resultSize delta)) $
-        throwError $ printf "error applying delta: expected %d, got %d bytes"
-                            (d_resultSize delta) (BL.length result)
+        fail $ printf "error applying delta: expected %d, got %d bytes"
+                      (d_resultSize delta) (BL.length result)
       return (basetype, result)
-    Right x -> throwError $ "complicated object type: " ++ show x  -- XXX handle these.
+    Right x -> fail $ "complicated object type: " ++ show x  -- XXX handle these.
   where
     pack_signature = 0x5041434b  -- "PACK"
     readHeader = do
@@ -150,12 +146,12 @@ getIndexEntry = do
   return (ofs, Hash hash)
 
 -- Look for a given hash in a given pack index.
-findInPackIndex :: FilePath -> Hash -> IOE (Maybe Word32)
+findInPackIndex :: FilePath -> Hash -> IO (Maybe Word32)
 findInPackIndex file hash@(Hash hashbytes) = do
   mmap <- liftIO $ mmapFileByteString (packDataPath file ++ ".idx") Nothing
   -- XXX check index version.
-  let (result, rest) = runGet get mmap
-  returnE result
+  let (Right offset, _) = runGet get mmap
+  return offset
   where
     get = do
       -- First 256 words are fanout:
@@ -184,9 +180,9 @@ findInPackIndex file hash@(Hash hashbytes) = do
       return (fromIntegral count)
 
 -- | Fetch an object, trying all pack files available.
-getPackObject :: Hash -> IOE RawObject
+getPackObject :: Hash -> IO RawObject
 getPackObject hash = do
-  packfiles <- liftIO $ findPackFiles
+  packfiles <- findPackFiles
   entry <- firstTrue $ flip map packfiles $ \file -> do
     offset <- findInPackIndex file hash
     case offset of
@@ -196,7 +192,7 @@ getPackObject hash = do
         return (Just entry)
   case entry of
     Just entry -> return entry
-    Nothing -> throwError "couldn't find hash in pack files"
+    Nothing -> fail "couldn't find hash in pack files"
 
 -- |Get a list of all pack files (without a path or an extension).
 findPackFiles :: IO [FilePath]

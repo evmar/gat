@@ -93,7 +93,10 @@ catchIOErrors action fallback =
 -- TODO: multiple pack files, alternates, etc.
 getRawObject :: Hash -> IOE RawObject
 getRawObject hash =
-  getLooseObject (objectPath hash) `catchIOErrors` const (getPackObject hash)
+  getLooseObject (objectPath hash)
+  `catchIOErrors` \err -> do
+    obj <- liftIO $ getPackObject hash
+    return obj
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
