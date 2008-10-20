@@ -5,6 +5,8 @@ clean:
 	rm -f *.hi *.o RevParse_test gat
 opt:
 	ghc --make -o gat -O2 Gat.hs
+profile:
+	ghc -prof -auto-all --make -o gat Gat.hs
 
 # Cut'n'paste job from Cabal.
 doc:
