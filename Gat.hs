@@ -13,6 +13,7 @@ import Index
 import Log
 import Object
 import ObjectStore
+import Pack
 import Refs
 import RevParse
 import Shared
@@ -92,6 +93,11 @@ cmdDumpTree args = do
   tree <- resolveRev (head args) >>= forceError >>= findTree
   liftIO $ print tree
 
+cmdDumpPackIndex args = do
+  unless (length args == 1) $
+    fail "expects one arg"
+  liftIO $ dumpPackIndex (head args)
+
 cmdLog :: [String] -> GitM ()
 cmdLog args = do
   let options = [
@@ -110,12 +116,13 @@ cmdLog args = do
 
 commands = [
     ("cat",  cmdCat)
-  , ("dump-index", cmdDumpIndex)
   , ("diff-index", cmdDiffIndex)
   , ("diff", cmdDiff)
-  , ("dump-tree", cmdDumpTree)
   , ("log", cmdLog)
   , ("ref",  cmdRef)
+  , ("dump-index", cmdDumpIndex)
+  , ("dump-pack-index", cmdDumpPackIndex)
+  , ("dump-tree", cmdDumpTree)
   ]
 
 usage message = do

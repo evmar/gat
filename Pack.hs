@@ -3,6 +3,8 @@
 module Pack (
     getPackObject
 
+  , dumpPackIndex
+
   -- * Exposed for testing
   , readDeltaOffset
 ) where
@@ -133,17 +135,31 @@ readDeltaOffset = do
 getByteAsWord32 :: Get Word32
 getByteAsWord32 = liftM fromIntegral getWord8
 
+-- Get the version of a pack index file.
+getIndexVersion = do
+  signature <- lookAhead getWord32be
+  case signature of
+    0 -> return 1
+    0xff744f63 -> do
+      skip 4  -- Skip over the signature.
+      getWord32be
+    _ -> fail "unexpected signature in idx"
+
 -- Dump a pack index file.
-dumpIndex file = do
-  mmap <- mmapFileByteString (packDataPath file ++ ".idx") Nothing
-  let (Right stuff,rest) = runGet get mmap
+dumpPackIndex file = do
+  mmap <- mmapFileByteString file Nothing
+  let (stuffe,rest) = runGet get mmap
+  stuff <- forceError stuffe
   print stuff
   where
     get = do
-      signature <- lookAhead getWord32be
-      case signature of
-        0 -> getV1
-        _ -> fail "unexpected signature in idx"
+      ver <- getIndexVersion
+      case ver of
+        1 -> do
+          v1 <- getV1
+          return (1, Just v1)
+        ver -> return (ver, Nothing)
+
     getV1 = do
       fanout <- sequence (replicate 256 getWord32be)
       entries <- sequence (replicate 10 getIndexEntry)
