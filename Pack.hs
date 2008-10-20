@@ -49,9 +49,15 @@ decompressStrict :: B.ByteString -> B.ByteString
 decompressStrict str = strictifyBS $ decompress $ BL.fromChunks [str]
 
 -- Get an entry from a pack file at a given byte offset.
-getPackEntry :: PackFile -> Word32 -> IO RawObject
+getPackEntry :: PackFile -> Word32 -> IO (PackFile, RawObject)
 getPackEntry pack offset = do
-  mmap <- liftIO $ mmapFileByteString (packDataPath pack ++ ".pack") Nothing
+  (pack, mmap) <-
+    case pack_mmapPack pack of
+      Just mmap -> do
+        return (pack, mmap)
+      Nothing -> do
+        mmap <- liftIO $ mmapFileByteString (packDataPath pack ++ ".pack") Nothing
+        return (pack { pack_mmapPack=Just mmap }, mmap)
   (Right (signature, version, entry_count), _) <- return $ runGet readHeader mmap
   when (signature /= pack_signature) $
     fail "bad pack signature"
@@ -68,20 +74,20 @@ getPackEntry pack offset = do
       -- XXX does passing it the remainder of the buffer cause the mmap to
       -- read in the remainder of the file?
       let expanded = decompress (BL.fromChunks [body])
-      return (typ, expanded)
+      return (pack, (typ, expanded))
     Right PackOfsDelta -> do
       -- Get the offset to the delta base.
       (Right refoffset, compressed) <- return $ runGet readDeltaOffset rest
       -- Read the delta out of this object.
       (Right delta, _) <- return $ runGet readDelta (decompressStrict compressed)
       -- Read the base object.
-      (basetype, baseraw) <- getPackEntry pack (offset - refoffset)
+      (pack, (basetype, baseraw)) <- getPackEntry pack (offset - refoffset)
       -- Apply the delta.
       let result = applyDelta (strictifyBS baseraw) delta
       unless (BL.length result == (fromIntegral $ d_resultSize delta)) $
         fail $ printf "error applying delta: expected %d, got %d bytes"
                       (d_resultSize delta) (BL.length result)
-      return (basetype, result)
+      return (pack, (basetype, result))
     Right x -> fail $ "complicated object type: " ++ show x  -- XXX handle these.
   where
     pack_signature = 0x5041434b  -- "PACK"
@@ -203,7 +209,7 @@ getPackObject hash = do
           (rest, obj) <- tryPacks rest
           return (pack:rest, obj)
         Just offset -> do
-          obj <- getPackEntry pack offset
+          (pack, obj) <- getPackEntry pack offset
           return (pack:rest, obj)
     tryPacks [] = fail "couldn't find hash in pack files"
 
