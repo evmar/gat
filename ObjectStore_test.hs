@@ -10,7 +10,7 @@ import ObjectStore
 testLoose :: Test
 testLoose = test $ do
   -- Load an object and assert a few of its properties.
-  (Right (objtype, raw)) <- runErrorT $ getLooseObject "testdata/loose"
+  (Just (objtype, raw)) <- getLooseObject "testdata/loose"
   assertEqual "parsed as blob" TypeBlob objtype
   assertEqual "content length" 2794 (BL.length raw)
 

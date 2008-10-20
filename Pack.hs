@@ -1,7 +1,10 @@
 -- A git pack file efficiently stores a bunch of objects, compressed and
 -- possibly deltafied against each other.
 module Pack (
-  getPackObject
+    getPackObject
+
+  -- * Exposed for testing
+  , readDeltaOffset
 ) where
 
 import Control.Monad

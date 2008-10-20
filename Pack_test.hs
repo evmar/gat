@@ -4,6 +4,7 @@ import Data.Word
 import Test.HUnit
 
 import Pack
+import Shared
 
 assertParse :: (Show a, Eq a) => Get a -> [Word8] -> a -> Assertion
 assertParse parser bytes exp =
