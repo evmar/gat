@@ -39,7 +39,7 @@ cmdCat args = do
         throwError $ concat errs ++ usageInfo "x" options
   hash <- resolveRev name
   if raw
-    then getRawObject hash >>= liftIO . BL.putStr . snd
+    then liftIO (getRawObject hash) >>= liftIO . BL.putStr . snd
     else getObject hash >>= liftIO . print
 
 cmdDumpIndex args = do

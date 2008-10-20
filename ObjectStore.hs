@@ -61,14 +61,21 @@ objectPath hash = ".git/objects" </> before </> after
   where (before, after) = splitAt 2 (hashAsHex hash)
 
 -- | Get a \"loose\" (found in @.git\/objects\/@...) object.
-getLooseObject :: FilePath -> IOE RawObject
+getLooseObject :: FilePath -> IO (Maybe RawObject)
 getLooseObject path = do
-  compressed <- liftIO $ BL.readFile path
-  checkHeader compressed
-  -- The normal format for loose objects is a compressed blob with a textual
-  -- header.
-  let raw = decompress compressed
-  returnE $ parseLoose raw
+  compressed <-
+    catchJust ioErrors (BL.readFile path >>= return . Just)
+                       (\err -> return Nothing)
+  case compressed of
+    Nothing -> return Nothing
+    Just compressed -> do
+      checkHeader compressed
+      -- The normal format for loose objects is a compressed blob with a textual
+      -- header.
+      let raw = decompress compressed
+      case parseLoose raw of
+        Left err -> fail err
+        Right ok -> return (Just ok)
   where
     checkHeader raw = do
       -- There is an older format that put info in the first few bytes of the
@@ -80,7 +87,7 @@ getLooseObject path = do
                             fromIntegral $ BL.index raw 1) :: (Word16, Word16)
       let word = (byte1 `shiftL` 8) + byte2
       unless (byte1 == 0x78 && word `mod` 31 == 0) $
-        throwError "object appears to be in old loose format"
+        fail "object appears to be in old loose format"
 
 bsToString = map w2c . BL.unpack
 
@@ -91,18 +98,18 @@ catchIOErrors action fallback =
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
-getRawObject :: Hash -> IOE RawObject
-getRawObject hash =
-  getLooseObject (objectPath hash)
-  `catchIOErrors` \err -> do
-    obj <- liftIO $ getPackObject hash
-    return obj
+getRawObject :: Hash -> IO RawObject
+getRawObject hash = do
+  obj <- getLooseObject (objectPath hash)
+  case obj of
+    Just obj -> return obj
+    Nothing -> getPackObject hash
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
 getObject :: Hash -> IOE Object
 getObject hash = do
-  (objtype, raw) <- getRawObject hash
+  (objtype, raw) <- liftIO $ getRawObject hash
   case objtype of
     TypeBlob -> return $ Blob raw
     TypeTree -> returnE $ parseTree raw >>= return . ObTree
