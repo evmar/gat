@@ -68,7 +68,10 @@ readIndex = do
   -- The index ends with a series of "extensions".
   -- So far, we've only seen an empty "tree" extension, so these aren't of much
   -- use yet.  But we parse it here just to verify it's as we expect.
-  tree <- readExtension
+  empty <- isEmpty
+  tree <-
+    if empty then return $ IndexTree [] []
+             else readExtension
   return $ Index { in_entries=entries, in_tree=tree }
 
 readHeader :: Get Int
@@ -173,7 +176,8 @@ loadIndex = do
   mmap <- mmapFileByteString ".git/index" Nothing
   -- Last 20 bytes are SHA1.
   let raw = B.take (B.length mmap - 20) mmap
-  (Right result, rest) <- return $ runGet readIndex raw
+  (resulte, rest) <- return $ runGet readIndex raw
+  result <- forceError resulte
   unless (B.length rest == 0) $
     fail $ "index had leftover unparsed data: " ++ show (result, rest)
   return result
