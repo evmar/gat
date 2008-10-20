@@ -9,6 +9,7 @@ module Shared (
   , fromHex
   , splitMSB
   , strictifyBS
+  , trace
 ) where
 
 import qualified Data.ByteString as B
@@ -17,6 +18,7 @@ import Control.Monad.Error
 import Data.Bits
 import Data.Char
 import Data.Word
+import Debug.Trace
 import Text.Printf
 
 -- | An alias for @Either String a@, for things that may fail with a String.
