@@ -116,7 +116,7 @@ getObject hash = do
       tree <- forceError (parseTree raw)
       return (ObTree tree)
     TypeCommit -> do
-      commit <- forceError (parseCommit (bsToString raw))
+      commit <- forceError (parseCommit (strictifyBS raw))
       return (ObCommit commit)
 
 -- | @findTree hash@ fetches objects, starting at @hash@, following commits

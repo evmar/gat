@@ -1,10 +1,19 @@
+import qualified Data.ByteString as B
 import Test.HUnit
 
 import Commit
+import Shared
+
+testSearchBS :: Test
+testSearchBS = test $ do
+  let str = makeBS "foo\nbar\nbaz\n\nnewlines\n"
+  let (Just ofs) = searchBS (makeBS "\n\n") str
+  assertEqual "found double-nl"
+    (makeBS "\n\nnewlines\n") (B.drop ofs str)
 
 testParse :: Test
 testParse = test $ do
-  text <- readFile "testdata/commit"
+  text <- B.readFile "testdata/commit"
   let Right commit = parseCommit text
   assertEqual "tree parsed"
     "6cab39a126bb985be8ff6e3907f648d55c2a5c57" (commit_tree commit)
@@ -17,4 +26,4 @@ testParse = test $ do
   assertEqual "message parsed"
     "generate docs in makefile\n" (commit_message commit)
 
-main = runTestTT testParse
+main = runTestTT (test [testSearchBS, testParse])

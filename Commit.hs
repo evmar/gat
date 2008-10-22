@@ -1,7 +1,18 @@
-module Commit where
+module Commit (
+    Commit(..)
+  , parseCommit
 
+  -- Exposed for testing.
+  , searchBS
+) where
+
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Internal as BI
+import qualified Data.ByteString.Unsafe as BU
 import Control.Monad.Error
 import Text.ParserCombinators.Parsec
+
+import Shared
 
 -- TODO:
 --   Represent hashes as "Shared.Hash"es.
@@ -20,36 +31,53 @@ emptyCommit = Commit [] [] [] [] []
 
 type CommitParser a = GenParser Char Commit a
 
+bsToString = map BI.w2c . B.unpack
+
+bsBreakAround :: Char -> B.ByteString -> (B.ByteString, B.ByteString)
+bsBreakAround char str =
+  let (before, after) = B.break (== BI.c2w char) str
+  in (before, B.tail after)
+
+-- Search a ByteString for a substring, returning its offset.
+-- Warning: naive search.
+searchBS :: B.ByteString -> B.ByteString -> Maybe Int
+searchBS needle str = tryNext str where
+  firstChar = B.head needle
+  tryNext str = do
+    ofs <- B.elemIndex firstChar str
+    let substr = B.drop ofs str
+    if needle `B.isPrefixOf` substr
+      then return ofs
+      else do
+        ofs' <- tryNext (B.drop 1 substr)
+        return (ofs + 1 + ofs')
+
 -- Parse a raw commit object from the datastore into a commit.
-parseCommit :: String -> Either String Commit
-parseCommit input =
-  -- I'm unclear on whether the header lines are guaranteed to be in any
-  -- order, so for simplicitly we allow them in any order.
-  -- Parsec's permutation phrases require at most one of each instance,
-  -- so we can't use them (commits can have multiple parents).  Instead,
-  -- we just update a Commit object's fields as we parse.
-  case runParser p_commit emptyCommit "" input of
-    Left error -> throwError $ "error parsing commit: " ++ show error
-    Right parse -> return parse
-  where
-  p_commit = do many p_header; newline; p_message; getState
-  p_header = p_tree <|> p_parent <|> p_author <|> p_committer
-  p_keyval str rest = do
-    try $ (string str >> char ' ')
-    rest
-  p_tree = do
-    hash <- p_keyval "tree" p_eol
-    updateState (\commit -> commit { commit_tree=hash })
-  p_parent = do
-    hash <- p_keyval "parent" p_eol
-    updateState (\commit -> commit { commit_parents=(commit_parents commit)++[hash] })
-  p_author = do
-    person <- p_keyval "author" p_eol
-    updateState (\commit -> commit { commit_author=person })
-  p_committer = do
-    person <- p_keyval "committer" p_eol
-    updateState (\commit -> commit { commit_committer=person })
-  p_eol = anyChar `manyTill` newline
-  p_message = do
-    message <- many anyChar
-    updateState (\commit -> commit { commit_message=message })
+parseCommit :: B.ByteString -> Either String Commit
+parseCommit input = commit where
+  commit = do
+    case searchBS (makeBS "\n\n") input of
+      Nothing -> fail "couldn't parse commit"
+      Just ofs -> do
+        let headers = parseHeaders (B.take ofs input)
+        let message = bsToString $ B.drop (ofs+2) input
+        return $ applyHeaders (emptyCommit { commit_message=message }) headers
+
+-- Parse a newline-separated list of headers into key,value pairs.
+parseHeaders :: B.ByteString -> [(String, String)]
+parseHeaders str = map splitHeader headerlines where
+  headerlines = B.split (BI.c2w '\n') str
+  splitHeader header =
+    let (key, val) = bsBreakAround ' ' header
+    in (bsToString key, bsToString val)
+
+-- Apply a list of headers to a commit.
+applyHeaders :: Commit -> [(String, String)] -> Commit
+applyHeaders = foldl applyHeader where
+  applyHeader commit (key, val)
+    | key == "tree" = commit { commit_tree=val }
+    | key == "parent" = commit { commit_parents=words val }
+    | key == "author" = commit { commit_author=val }
+    | key == "committer" = commit { commit_committer=val }
+    | otherwise = commit  -- XXX should we handle unparsed headers?
+

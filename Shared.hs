@@ -8,7 +8,7 @@ module Shared (
   , isHashString
   , fromHex
   , splitMSB
-  , strictifyBS
+  , strictifyBS, makeBS
   , trace
 ) where
 
@@ -82,3 +82,7 @@ splitMSB byte = (msb, bits) where
 -- |Convert a ByteString.Lazy to a strict ByteString.
 strictifyBS :: BL.ByteString -> B.ByteString
 strictifyBS = B.concat . BL.toChunks
+
+-- | Convert a String into a strict ByteString.
+makeBS :: String -> B.ByteString
+makeBS = B.pack . map (fromIntegral . fromEnum)
