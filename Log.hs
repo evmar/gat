@@ -37,4 +37,5 @@ showCommit hash commit = render $
   -- text "Tree:   " <+> text (commit_tree commit) $+$
   text "Parents:" <+> hcat (map text (commit_parents commit)) $+$
   text "" $+$
-  nest 4 (text (commit_message commit))
+  nest 4 (vcat $ map text $ lines (commit_message commit)) $+$
+  text ""
