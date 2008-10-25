@@ -138,12 +138,15 @@ getByteAsWord32 = liftM fromIntegral getWord8
 -- Get the version of a pack index file.
 getIndexVersion = do
   signature <- lookAhead getWord32be
-  case signature of
-    0 -> return 1
-    0xff744f63 -> do
-      skip 4  -- Skip over the signature.
-      getWord32be
-    _ -> fail "unexpected signature in idx"
+  if signature /= magicValue
+    then return 1  -- Assume old-format index.
+    else do
+      skip 4       -- Skip over the signature.
+      getWord32be  -- Index version is next.
+  where
+    -- This magic value was chosen because it's invalid in all old-format
+    -- (signatureless) index files.  See pack.h.
+    magicValue = 0xff744f63
 
 -- Dump a pack index file.
 dumpPackIndex file = do
@@ -182,11 +185,13 @@ findInPackIndex pack hash@(Hash hashbytes) = do
       Nothing -> do
         mmap <- liftIO $ mmapFileByteString (packDataPath pack ++ ".idx") Nothing
         return (pack { pack_mmapIndex=Just mmap }, mmap)
-  -- XXX check index version.
-  let (Right offset, _) = runGet get mmap
+  offset <- forceError $ fst $ runGet get mmap
   return (pack, offset)
   where
     get = do
+      version <- getIndexVersion
+      unless (version == 1) $
+        fail $ "we don't handle index version: " ++ show version
       -- First 256 words are fanout:
       --   fanout[byte] = # hashes whose first byte <= byte
       -- We get lower and upper bounds for the range we need to search.
