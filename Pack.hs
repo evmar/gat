@@ -21,6 +21,7 @@ import Data.List
 import Data.Word
 import Data.Bits
 import Text.Printf
+import System.Posix.Files (getFileStatus, modificationTime)
 import System.IO.MMap (mmapFileByteString, Mode(..))
 import System.Directory
 
@@ -294,17 +295,27 @@ getPackState = do
   case packs of
     Just packs -> return packs
     Nothing -> do
-      files <- liftIO $ findPackFiles
-      let packs = map (\name -> PackFile name Nothing Nothing) files
-      -- TODO: sort list by (locality, age).
-      -- nonlocal = via alternates db.  age is from stat() info.
+      packs <- liftIO initPackFiles
       putPackState packs
       return packs
 
+-- Get an ordered list of pack files.
+initPackFiles :: IO [PackFile]
+initPackFiles = do
+  let packdir = ".git/objects/pack"
+  files <- findPackFileNames packdir
+  stats <- mapM (\f -> getFileStatus (packdir ++ "/" ++ f ++ ".idx")) files
+  -- TODO: sort list also by locality once we support alternates db.
+  let sortedFiles = map snd $ sortBy compareByMTime $ zip stats files
+  return $ map (\name -> PackFile name Nothing Nothing) sortedFiles
+  where
+    compareByMTime (a,_) (b,_) =
+      compare (modificationTime b) (modificationTime a)
+
 -- Get a list of all pack files (without a path or an extension).
-findPackFiles :: IO [FilePath]
-findPackFiles = do
-  files <- getDirectoryContents (".git/objects/pack")
+findPackFileNames :: FilePath -> IO [FilePath]
+findPackFileNames packdir = do
+  files <- getDirectoryContents packdir
   return $ map dropIdxSuffix $ filter (".idx" `isSuffixOf`) files
   where
     dropIdxSuffix path = take (length path - length ".idx") path
