@@ -165,15 +165,15 @@ dumpPackIndex file = do
 
     getV1 = do
       fanout <- sequence (replicate 256 getWord32be)
-      entries <- sequence (replicate 10 getIndexEntry)
+      entries <- sequence (replicate 10 getIndexEntryV1)
       return (fanout, entries)
 
--- Parse an entry out of a pack index.
-getIndexEntry :: Get (Word32, Hash)
-getIndexEntry = do
-  ofs <- getWord32be
-  hash <- getByteString 20
-  return (ofs, Hash hash)
+    -- Parse an entry out of a pack index.
+    getIndexEntryV1 :: Get (Word32, Hash)
+    getIndexEntryV1 = do
+      ofs <- getWord32be
+      hash <- getByteString 20
+      return (ofs, Hash hash)
 
 -- Look for a given hash in a given pack index.
 findInPackIndex :: PackFile -> Hash -> IO (PackFile, Maybe Word32)
@@ -190,28 +190,68 @@ findInPackIndex pack hash@(Hash hashbytes) = do
   where
     get = do
       version <- getIndexVersion
-      unless (version == 1) $
+      unless (version == 1 || version == 2) $
         fail $ "we don't handle index version: " ++ show version
+
       -- First 256 words are fanout:
       --   fanout[byte] = # hashes whose first byte <= byte
       -- We get lower and upper bounds for the range we need to search.
+      bounds <- getSearchBounds hash
+      object_count <- getFanOut 255
+      skip (4 * 256)  -- Skip over fanout.
+
+      case version of
+        1 -> getV1 bounds
+        2 -> getV2 bounds object_count
+
+    getV1 (lower_bound, upper_bound) = do
+      -- We have a range we should search.
+      -- XXX linear scan for now; do binary search later.
+      -- V1 format is a (4-byte offset, 20-byte sha-1) sorted list.
+      skip ((4 + 20) * lower_bound)
+      entries <- sequence (replicate (upper_bound - lower_bound) getIndexEntryV1)
+      return $ do  -- Maybe monad
+        (ofs,_) <- find (\(ofs, Hash h) -> h == hashbytes) entries
+        return ofs
+
+    -- Parse an entry out of a pack index.
+    -- TODO: remove me when we do binary search.
+    getIndexEntryV1 :: Get (Word32, Hash)
+    getIndexEntryV1 = do
+      ofs <- getWord32be
+      hash <- getByteString 20
+      return (ofs, Hash hash)
+
+    getV2 (lower_bound, upper_bound) object_count = do
+      -- We have a range we should search.
+      -- XXX linear scan for now; do binary search later.
+      -- V2 format is a (20-byte sha-1) sorted list,
+      -- followed by a CRC table and then a matching 4-byte offset list.
+      entries <- lookAhead $ do
+        skip (20 * lower_bound)
+        sequence $ replicate (upper_bound - lower_bound) (getByteString 20)
+      case elemIndex hashbytes entries of
+        Nothing -> return Nothing
+        Just idx -> do
+          skip (object_count * 20)  -- Skip SHA-1 list.
+          skip (object_count * 4)   -- Skip CRC list.
+          skip ((lower_bound+idx) * 4)  -- Skip to the entry we want.
+          ofs <- getWord32be
+          if ofs .&. 0x80000000 == 0
+            then return (Just ofs)
+            else fail $ "not yet implemented: v2 index file has 8-byte offset"
+
+    -- Get the bounds of hash range we need to search.
+    getSearchBounds (Hash hashbytes) = do
       let idx = fromIntegral (B.head hashbytes) :: Int
       lower_bound <-
         if idx > 0
           then getFanOut (idx-1)
           else return 0
       upper_bound <- getFanOut idx
-      skip (4 * 256)  -- Skip over fanout.
+      return (lower_bound, upper_bound)
 
-      -- Now we have a range we should search.
-      -- XXX linear scan for now; do binary search later.
-      -- Seek to initial position; index entries are 4+20 bytes.
-      skip ((4 + 20) * lower_bound)
-      entries <- sequence (replicate (upper_bound - lower_bound) getIndexEntry)
-      return $ do
-        (ofs,_) <- find (\(ofs, Hash h) -> h == hashbytes) entries
-        return ofs
-
+    -- Get an entry from the fanout table.
     getFanOut idx = lookAhead $ do
       skip (4 * idx)
       count <- getWord32be
