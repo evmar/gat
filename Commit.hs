@@ -58,7 +58,11 @@ parseCommit input = commit where
       Just ofs -> do
         let headers = parseHeaders (B.take ofs input)
         let message = bsToString $ B.drop (ofs+2) input
-        return $ applyHeaders (emptyCommit { commit_message=message }) headers
+        let c = emptyCommit { commit_message=message }
+        let c' = applyHeaders c headers
+        return $ fixupParents c'
+  fixupParents commit =
+    commit { commit_parents=reverse (commit_parents commit) }
 
 -- Parse a newline-separated list of headers into key,value pairs.
 parseHeaders :: B.ByteString -> [(String, String)]
@@ -73,7 +77,7 @@ applyHeaders :: Commit -> [(String, String)] -> Commit
 applyHeaders = foldl applyHeader where
   applyHeader commit (key, val)
     | key == "tree" = commit { commit_tree=val }
-    | key == "parent" = commit { commit_parents=words val }
+    | key == "parent" = commit { commit_parents=val:(commit_parents commit) }
     | key == "author" = commit { commit_author=val }
     | key == "committer" = commit { commit_committer=val }
     | otherwise = commit  -- XXX should we handle unparsed headers?

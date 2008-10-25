@@ -35,7 +35,7 @@ showCommit :: Hash -> Commit -> String
 showCommit hash commit = render $
   text "Commit: " <+> text (hashAsHex hash) $+$
   -- text "Tree:   " <+> text (commit_tree commit) $+$
-  text "Parents:" <+> hcat (map text (commit_parents commit)) $+$
+  text "Parents:" <+> hsep (map text (commit_parents commit)) $+$
   text "" $+$
   nest 4 (vcat $ map text $ lines (commit_message commit)) $+$
   text ""
