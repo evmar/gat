@@ -37,6 +37,7 @@ data PackFile = PackFile {
   , pack_mmapIndex :: Maybe B.ByteString  -- ^ mmap of pack file index
   -- TODO: git maintains mmap windows into pack file.
   , pack_mmapPack  :: Maybe B.ByteString  -- ^ mmap of pack file data
+  , pack_entryCount :: Int
 }
 instance Show PackFile where
   show pack = "[Pack " ++ pack_name pack

@@ -55,22 +55,35 @@ packDataPath pack = (".git/objects/pack/" ++ pack_name pack)
 decompressStrict :: B.ByteString -> B.ByteString
 decompressStrict str = strictifyBS $ decompress $ BL.fromChunks [str]
 
+-- Initialize the PackFile's fields (e.g. mmap) if necessary.
+initPackFile :: PackFile -> IO (PackFile, B.ByteString)
+initPackFile pack = do
+  case pack_mmapPack pack of
+    Just mmap -> do
+      return (pack, mmap)
+    Nothing -> do
+      mmap <- mmapFileByteString (packDataPath pack ++ ".pack") Nothing
+      (signature, version, entry_count) <-
+        forceError $ fst $ runGet readPackHeader mmap
+      when (signature /= pack_signature) $
+        fail "bad pack signature"
+      when (version /= 2) $
+        fail "bad pack version"
+      return $ (pack { pack_mmapPack=(Just mmap),
+                       pack_entryCount=fromIntegral entry_count },
+                mmap)
+  where
+  pack_signature = 0x5041434b  -- "PACK"
+  readPackHeader = do
+    signature <- getWord32be
+    version <- getWord32be
+    entry_count <- getWord32be
+    return (signature, version, entry_count)
+
 -- Get an entry from a pack file at a given byte offset.
 getPackEntry :: PackFile -> Word32 -> IO (PackFile, RawObject)
 getPackEntry pack offset = do
-  (pack, mmap) <-
-    case pack_mmapPack pack of
-      Just mmap -> do
-        return (pack, mmap)
-      Nothing -> do
-        mmap <- liftIO $ mmapFileByteString (packDataPath pack ++ ".pack") Nothing
-        return (pack { pack_mmapPack=Just mmap }, mmap)
-  (Right (signature, version, entry_count), _) <- return $ runGet readHeader mmap
-  when (signature /= pack_signature) $
-    fail "bad pack signature"
-  when (version /= 2) $
-    fail "bad pack version"
-
+  (pack, mmap) <- initPackFile pack
   let entry_raw = B.drop (fromIntegral offset) mmap
   (Right (typint, size), rest) <- return $ runGet readObjectHeader entry_raw
   let body = B.take (fromIntegral size + 10000) rest
@@ -97,12 +110,6 @@ getPackEntry pack offset = do
       return (pack, (basetype, result))
     Right x -> fail $ "complicated object type: " ++ show x  -- XXX handle these.
   where
-    pack_signature = 0x5041434b  -- "PACK"
-    readHeader = do
-      signature <- getWord32be
-      version <- getWord32be
-      entry_count <- getWord32be
-      return (signature, version, entry_count)
     readObjectHeader :: Get (Word32, Word32)
     readObjectHeader = do
       flag <- getByteAsWord32
@@ -301,7 +308,7 @@ initPackFiles = do
   stats <- mapM (\f -> getFileStatus (packdir ++ "/" ++ f ++ ".idx")) files
   -- TODO: sort list also by locality once we support alternates db.
   let sortedFiles = map snd $ sortBy compareByMTime $ zip stats files
-  return $ map (\name -> PackFile name Nothing Nothing) sortedFiles
+  return $ map (\name -> PackFile name Nothing Nothing 0) sortedFiles
   where
     compareByMTime (a,_) (b,_) =
       compare (modificationTime b) (modificationTime a)
