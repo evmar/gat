@@ -19,7 +19,6 @@ import Data.Bits
 import Data.Char
 import Data.Word
 import Debug.Trace
-import Text.Printf
 
 -- | An alias for @Either String a@, for things that may fail with a String.
 type ErrorOr a = Either String a
@@ -36,8 +35,12 @@ instance Show Hash where
 
 -- | Dump a ByteString as a String of hexidecimal characters.
 asHex :: B.ByteString -> String
-asHex = concatMap hex . B.unpack where
-  hex c = printf "%02x" (c :: Word8)
+asHex str = foldr hex "" $ B.unpack str where
+  hex :: Word8 -> String -> String
+  hex c rest = hexNybble (c `shiftR` 4) : hexNybble (c .&. 0xF) : rest
+  hexNybble :: Word8 -> Char
+  hexNybble c = ("0123456789abcdef" !! fromIntegral c)
+
 -- | Parse a string of hex into a ByteString.
 fromHex :: String -> B.ByteString
 fromHex = B.pack . bytes where
