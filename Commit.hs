@@ -10,7 +10,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as BI
 import qualified Data.ByteString.Unsafe as BU
 import Control.Monad.Error
-import Text.ParserCombinators.Parsec
 
 import Shared
 
@@ -28,8 +27,6 @@ data Commit = Commit {
 } deriving Show
 emptyCommit :: Commit
 emptyCommit = Commit [] [] [] [] []
-
-type CommitParser a = GenParser Char Commit a
 
 bsToString = map BI.w2c . B.unpack
 
