@@ -220,21 +220,15 @@ findInPackIndex pack hash@(Hash hashbytes) = do
 
     getV1 (lower_bound, upper_bound) = do
       -- We have a range we should search.
-      -- XXX linear scan for now; do binary search later.
       -- V1 format is a (4-byte offset, 20-byte sha-1) sorted list.
-      skip ((4 + 20) * lower_bound)
-      entries <- sequence (replicate (upper_bound - lower_bound) getIndexEntryV1)
-      return $ do  -- Maybe monad
-        (ofs,_) <- find (\(ofs, Hash h) -> h == hashbytes) entries
-        return ofs
-
-    -- Parse an entry out of a pack index.
-    -- TODO: remove me when we do binary search.
-    getIndexEntryV1 :: Get (Word32, Hash)
-    getIndexEntryV1 = do
-      ofs <- getWord32be
-      hash <- getByteString 20
-      return (ofs, Hash hash)
+      target <- binarySearch (lower_bound, upper_bound)
+          (\i -> lookAhead $ do skip ((4 + 20) * i); skip 4; getByteString 20) hashbytes
+      case target of
+        Nothing -> return Nothing
+        Just idx -> do
+          skip ((4 + 20) * idx)
+          ofs <- getWord32be
+          return (Just ofs)
 
     getV2 (lower_bound, upper_bound) object_count = do
       -- We have a range we should search.
