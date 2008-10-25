@@ -4,9 +4,10 @@ gat: *.hs
 clean:
 	rm -f *.hi *.o gat
 opt:
+	# The docs say -fvia-C helps, but it didn't in my experience.
 	ghc --make -o gat -O2 Gat.hs
 profile:
-	ghc -prof -auto-all --make -o gat Gat.hs
+	ghc -prof -auto-all --make -O2 -o gat Gat.hs
 
 # Cut'n'paste job from Cabal.
 doc:
