@@ -240,6 +240,8 @@ getPackState = do
     Nothing -> do
       files <- liftIO $ findPackFiles
       let packs = map (\name -> PackFile name Nothing Nothing) files
+      -- TODO: sort list by (locality, age).
+      -- nonlocal = via alternates db.  age is from stat() info.
       putPackState packs
       return packs
 
