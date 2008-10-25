@@ -23,10 +23,10 @@ data Commit = Commit {
   , commit_parents   :: [String]
   , commit_author    :: String
   , commit_committer :: String
-  , commit_message   :: String
+  , commit_message   :: B.ByteString
 } deriving Show
 emptyCommit :: Commit
-emptyCommit = Commit [] [] [] [] []
+emptyCommit = Commit [] [] [] [] B.empty
 
 bsToString = map BI.w2c . B.unpack
 
@@ -57,7 +57,7 @@ parseCommit input = commit where
       Nothing -> fail "couldn't parse commit"
       Just ofs -> do
         let headers = parseHeaders (B.take ofs input)
-        let message = bsToString $ B.drop (ofs+2) input
+        let message = B.drop (ofs+2) input
         let c = emptyCommit { commit_message=message }
         let c' = applyHeaders c headers
         return $ fixupParents c'

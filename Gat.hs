@@ -112,7 +112,7 @@ cmdLog args = do
       (_, _,  errs) ->
         fail $ concat errs ++ usageInfo "x" options
   (branch, commithash) <- liftIO $ (resolveRef "HEAD") >>= forceError
-  showLog opts commithash
+  printLog opts commithash
 
 commands = [
     ("cat",  cmdCat)

@@ -1,7 +1,8 @@
 module Log where
 
+import qualified Data.ByteString as B
+import Data.List
 import Control.Monad.Error
-import Text.PrettyPrint
 
 import Commit
 import Object
@@ -17,25 +18,30 @@ data LogOptions = LogOptions {
 defaultLogOptions = LogOptions (-1)
 
 -- | Driver for "gat log" -- display a log with various options set.
-showLog :: LogOptions -> Hash -> GitM ()
-showLog (LogOptions {logoptions_commitLimit=0}) hash = return ()
-showLog opts hash = do
+printLog :: LogOptions -> Hash -> GitM ()
+printLog (LogOptions {logoptions_commitLimit=0}) hash = return ()
+printLog opts hash = do
   commit <- getObject hash
   case commit of
     ObCommit commit -> do
       let opts' = opts { logoptions_commitLimit=logoptions_commitLimit opts - 1 }
-      liftIO $ putStrLn $ showCommit hash commit
+      liftIO $ printCommit hash commit
       case commit_parents commit of
-        (parent:_) -> showLog opts' (Hash (fromHex parent))
+        (parent:_) -> printLog opts' (Hash (fromHex parent))
         _ -> return ()
     _ -> fail $ "hash " ++ hashAsHex hash ++ " not a commit?"
 
--- | Show a single Commit in a form similar to "git log".
-showCommit :: Hash -> Commit -> String
-showCommit hash commit = render $
-  text "Commit: " <+> text (hashAsHex hash) $+$
-  -- text "Tree:   " <+> text (commit_tree commit) $+$
-  text "Parents:" <+> hsep (map text (commit_parents commit)) $+$
-  text "" $+$
-  nest 4 (vcat $ map text $ lines (commit_message commit)) $+$
-  text ""
+-- | Pring a single Commit in a form similar to "git log".
+printCommit :: Hash -> Commit -> IO ()
+printCommit hash commit = do
+  putStrLn $ "Commit: " ++ hashAsHex hash
+  putStrLn $ "Parents: " ++ intercalate " " (commit_parents commit)
+  putStrLn ""
+  printMessage (commit_message commit)
+
+printMessage :: B.ByteString -> IO ()
+printMessage msg = mapM_ printIndentedLine (B.split 10 msg) where
+  printIndentedLine :: B.ByteString -> IO ()
+  printIndentedLine str = do
+    putStr "    "
+    B.putStrLn str
