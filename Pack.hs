@@ -6,6 +6,7 @@ module Pack (
   , dumpPackIndex
 
   -- * Exposed for testing
+  , binarySearch
   , readDeltaOffset
 ) where
 
@@ -175,6 +176,18 @@ dumpPackIndex file = do
       hash <- getByteString 20
       return (ofs, Hash hash)
 
+binarySearch :: (Monad m, Ord a) => (Int, Int) -> (Int -> m a) -> a
+             -> m (Maybe Int)
+binarySearch (lo,hi) get target = search lo hi where
+  search lo hi | lo == hi = return Nothing
+  search lo hi = do
+    let mid = (lo + hi) `div` 2
+    try <- get mid
+    case try `compare` target of
+      EQ -> return (Just mid)
+      LT -> search (mid+1) hi
+      GT -> search lo mid
+
 -- Look for a given hash in a given pack index.
 findInPackIndex :: PackFile -> Hash -> IO (PackFile, Maybe Word32)
 findInPackIndex pack hash@(Hash hashbytes) = do
@@ -224,18 +237,16 @@ findInPackIndex pack hash@(Hash hashbytes) = do
 
     getV2 (lower_bound, upper_bound) object_count = do
       -- We have a range we should search.
-      -- XXX linear scan for now; do binary search later.
       -- V2 format is a (20-byte sha-1) sorted list,
       -- followed by a CRC table and then a matching 4-byte offset list.
-      entries <- lookAhead $ do
-        skip (20 * lower_bound)
-        sequence $ replicate (upper_bound - lower_bound) (getByteString 20)
-      case elemIndex hashbytes entries of
+      target <- binarySearch (lower_bound, upper_bound)
+          (\i -> lookAhead $ do skip (20*i); getByteString 20) hashbytes
+      case target of
         Nothing -> return Nothing
         Just idx -> do
           skip (object_count * 20)  -- Skip SHA-1 list.
           skip (object_count * 4)   -- Skip CRC list.
-          skip ((lower_bound+idx) * 4)  -- Skip to the entry we want.
+          skip (idx * 4)            -- Skip to the entry we want.
           ofs <- getWord32be
           if ofs .&. 0x80000000 == 0
             then return (Just ofs)
