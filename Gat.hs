@@ -1,6 +1,7 @@
 
 import qualified Data.ByteString.Lazy as BL
 import Control.Monad.Error
+import Control.Exception
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
@@ -144,8 +145,9 @@ main = do
       (cmd:args) -> do
         case lookup cmd commands of
           Just cmdfunc -> do
-            runGit $ cmdfunc args
-            return ExitSuccess
+            catchJust userErrors
+              (do runGit (cmdfunc args); return ExitSuccess)
+              (\err -> do putStrLn $ "fatal: " ++ err; return (ExitFailure 1))
           _ -> usage $ "unknown command: '" ++ cmd ++ "'"
       _ -> usage $ "must provide command"
   exitWith exit
