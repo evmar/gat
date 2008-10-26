@@ -4,6 +4,7 @@ import qualified Data.ByteString as B
 import Data.List
 import Control.Monad.Error
 
+import Color
 import Commit
 import Object
 import ObjectStore
@@ -34,8 +35,10 @@ printLog opts hash = do
 -- | Pring a single Commit in a form similar to "git log".
 printCommit :: Hash -> Commit -> IO ()
 printCommit hash commit = do
-  putStrLn $ "Commit: " ++ hashAsHex hash
-  putStrLn $ "Parents: " ++ intercalate " " (commit_parents commit)
+  putStrLn $ coloredLine Yellow $ "commit " ++ hashAsHex hash
+  when (length (commit_parents commit) > 1) $
+    putStrLn $ "Parents: " ++ intercalate " " (commit_parents commit)
+  putStrLn $ "Author: " ++ commit_author commit
   putStrLn ""
   printMessage (commit_message commit)
 
