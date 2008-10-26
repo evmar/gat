@@ -2,7 +2,8 @@
 -- Typically they live as text files under @.git\/refs@ but they can also be
 -- \"packed\" into @.git\/packed-refs@.
 module Refs (
-  resolveRef
+    fullNameRef
+  , resolveRef
 ) where
 
 import Control.Exception

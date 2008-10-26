@@ -106,13 +106,21 @@ cmdLog args = do
           (ReqArg (\n opts -> opts { logoptions_commitLimit=(read n) }) "LIMIT")
           "limit number of commits to show"
         ]
-  opts <-
+  (opts, args) <-
     case getOpt Permute options args of
-      (o, [], []) -> return (foldl (flip id) defaultLogOptions o)
-      (_, _,  []) -> fail "expects no args"
+      (o, a, []) -> return (foldl (flip id) defaultLogOptions o, a)
       (_, _,  errs) ->
         fail $ concat errs ++ usageInfo "x" options
-  (branch, commithash) <- liftIO $ (resolveRef "HEAD") >>= forceError
+  ref <- do
+    shortref <- case args of
+      [x] -> return x
+      [] ->  return "HEAD"
+      _ -> fail "expects zero or one arg"
+    mref <- liftIO $ fullNameRef shortref
+    case mref of
+      Nothing -> fail "couldn't resolve ref"
+      Just ref -> return ref
+  (branch, commithash) <- liftIO $ (resolveRef ref) >>= forceError
   redirectThroughPager $ printLog opts commithash
 
 commands = [
