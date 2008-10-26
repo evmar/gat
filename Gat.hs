@@ -120,7 +120,7 @@ cmdLog args = do
     case mref of
       Nothing -> fail "couldn't resolve ref"
       Just ref -> return ref
-  (branch, commithash) <- liftIO $ (resolveRef ref) >>= forceError
+  commithash <- liftIO $ (resolveRef ref) >>= forceError
   redirectThroughPager $ printLog opts commithash
 
 commands = [

@@ -17,13 +17,15 @@ import System.Directory
 
 import Shared
 
+data Ref = RefSymbolic FilePath | RefHash String
+
 {-# NOINLINE packedRefs #-}
-packedRefsState :: IORef (Maybe [(String, FilePath)])
+packedRefsState :: IORef (Maybe [(Ref, FilePath)])
 packedRefsState = unsafePerformIO $ newIORef Nothing
 
 -- |Get the packed references, if any.  Caches the result the first time
 -- and returns the cached result in the future.
-packedRefs :: IO [(String, FilePath)]
+packedRefs :: IO [(Ref, FilePath)]
 packedRefs = do
   ref <- readIORef packedRefsState
   case ref of
@@ -39,7 +41,8 @@ packedRefs = do
     -- XXX Git parses the comment header and finds the "peeled" attribute.
     -- refs.c:read_packed_refs
     refLines content = filter (not . ("#" `isPrefixOf`)) (lines content)
-    parseLine line = breakAround (== ' ') line
+    parseLine line = let (hash, ref) = breakAround (== ' ') line
+                     in (RefHash hash, ref)
 
 stripWhitespace :: String -> String
 stripWhitespace = reverse . dropSpace . reverse . dropSpace where
@@ -73,33 +76,31 @@ fullNameRef name = firstTrue $ map testPath sympaths
 
 -- Read a ref (e.g. "refs/heads/master") to either a hash or another
 -- ref name.
-readRef :: FilePath -> IO (Maybe String)
+readRef :: FilePath -> IO (Maybe Ref)
 readRef path = do
   plain <- try readPlain
   case plain of
     Right ok -> return $ Just ok
     Left exn -> readPacked
   where
-    readPlain :: IO String
+    readPlain :: IO Ref
     readPlain = do
       content <- readFile (".git" </> path)
       case stripPrefix "ref:" content of
-        Just target -> return $ stripWhitespace target
-        Nothing     -> return $ stripWhitespace content
-    readPacked :: IO (Maybe String)
+        Just target -> return $ RefSymbolic (stripWhitespace target)
+        Nothing     -> return $ RefHash (stripWhitespace content)
+    readPacked :: IO (Maybe Ref)
     readPacked = do
       packed <- packedRefs
       return $ liftM fst $ find (\(_, p) -> p == path) packed
 
 -- | Resolve a ref (like \"refs\/heads\/master\") to a hash, following symbolic
 -- references between refs.
-resolveRef :: FilePath -> IO (ErrorOr (String, Hash))
+resolveRef :: FilePath -> IO (ErrorOr Hash)
 resolveRef ref = do
   target <- readRef ref
   case target of
     Nothing -> return $ throwError $ "couldn't resolve ref: " ++ ref
-    Just target -> do
-      if isHashString target
-        then return $ Right (ref, Hash (fromHex target))
-        else resolveRef target
+    Just (RefSymbolic path) -> resolveRef path
+    Just (RefHash hash) -> return $ Right (Hash (fromHex hash))
 
