@@ -21,6 +21,7 @@ import System.Posix.Files
 import System.Posix.IO
 import System.Process
 
+import Color
 import FileMode
 import Index
 import Object
@@ -135,22 +136,16 @@ runFancyDiffCommand path1 path2 = do
   exit <- waitForProcess pid
   return exit
   where
-    col_reset = "\x1b[m"
-    col_meta  = "\x1b[1m"
-    col_old   = "\x1b[31m"
-    col_new   = "\x1b[32m"
-    col_frag  = "\x1b[36m"
-    colorLine color line = color ++ line ++ col_reset
     prefixColors = [
-        ("--- ", col_meta)
-      , ("+++ ", col_meta)
-      , ("-",   col_old)
-      , ("+",   col_new)
-      , ("@@ ",  col_frag)
+        ("--- ", Bold)
+      , ("+++ ", Bold)
+      , ("-",    Red)
+      , ("+",    Green)
+      , ("@@ ",  Cyan)
       ]
     colorDiffLine line =
-      case filter (\(pfx,_) -> pfx `isPrefixOf` line) prefixColors of
-        ((_,color):_) -> color ++ line ++ col_reset
+      case find (\(pfx,_) -> pfx `isPrefixOf` line) prefixColors of
+        Just (_,color) -> coloredLine color line
         -- TODO: trailing whitespace.
         _ -> line
 
