@@ -111,16 +111,12 @@ cmdLog args = do
       (o, a, []) -> return (foldl (flip id) defaultLogOptions o, a)
       (_, _,  errs) ->
         fail $ concat errs ++ usageInfo "x" options
-  ref <- do
-    shortref <- case args of
+  commithash <- do
+    commitish <- case args of
       [x] -> return x
       [] ->  return "HEAD"
       _ -> fail "expects zero or one arg"
-    mref <- liftIO $ fullNameRef shortref
-    case mref of
-      Nothing -> fail "couldn't resolve ref"
-      Just ref -> return ref
-  commithash <- liftIO $ (resolveRef ref) >>= forceError
+    resolveRev commitish >>= forceError
   redirectThroughPager $ printLog opts commithash
 
 commands = [

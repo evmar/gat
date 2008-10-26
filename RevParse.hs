@@ -13,7 +13,7 @@ import Text.ParserCombinators.Parsec
 import Commit
 import Object (Object(..))
 import ObjectStore (getObject)
-import Refs (resolveRef)
+import Refs
 import Shared
 import State
 
@@ -67,7 +67,12 @@ resolve (RevParent nth rev) = do
         (hex:_) -> return $ Hash (fromHex hex)
         _ -> fail "commit has no parent"
     _ -> fail "object is not a commit"
-resolve (RevSymRef name) = liftIO $ (resolveRef name >>= forceError)
+resolve (RevSymRef name) = do
+  fullname <- liftIO $ fullNameRef name
+  case fullname of
+    Nothing -> fail $ "couldn't resolve name: " ++ name
+    Just name ->
+      liftIO $ (resolveRef name >>= forceError)
 
 -- | Resolve a string like \"origin\/master~3\" into a Hash.
 resolveRev :: String -> GitM (ErrorOr Hash)
