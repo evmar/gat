@@ -14,6 +14,7 @@ import Log
 import Object
 import ObjectStore
 import Pack
+import Pager
 import Refs
 import RevParse
 import Shared
@@ -46,8 +47,8 @@ cmdCat args = do
       if raw
         then do
           (typ, obj) <- getRawObject hash
-          liftIO $ BL.putStr obj
-        else getObject hash >>= liftIO . print
+          redirectThroughPager $ liftIO $ BL.putStr obj
+        else getObject hash >>= redirectThroughPager . liftIO . print
 
 cmdDumpIndex :: [String] -> GitM ()
 cmdDumpIndex args = liftIO $ do
@@ -64,7 +65,7 @@ cmdDiffIndex args = do
     fail "'diff-index' takes no arguments"
   index <- liftIO loadIndex
   pairs <- liftIO $ diffAgainstIndex index
-  mapM_ showDiff pairs
+  redirectThroughPager $ mapM_ showDiff pairs
 
 cmdDiff :: [String] -> GitM ()
 cmdDiff args = do
@@ -80,7 +81,7 @@ cmdDiff args = do
         tree1 <- revTree name1
         tree2 <- revTree name2
         liftIO $ diffTrees tree1 tree2
-  mapM_ showDiff diffpairs
+  redirectThroughPager $ mapM_ showDiff diffpairs
   where
     revTree :: String -> GitM Tree
     revTree name = do
@@ -91,12 +92,12 @@ cmdDumpTree args = do
   unless (length args == 1) $
     fail "expects one arg"
   tree <- resolveRev (head args) >>= forceError >>= findTree
-  liftIO $ print tree
+  redirectThroughPager $ liftIO $ print tree
 
 cmdDumpPackIndex args = do
   unless (length args == 1) $
     fail "expects one arg"
-  liftIO $ dumpPackIndex (head args)
+  redirectThroughPager $ liftIO $ dumpPackIndex (head args)
 
 cmdLog :: [String] -> GitM ()
 cmdLog args = do
@@ -112,7 +113,7 @@ cmdLog args = do
       (_, _,  errs) ->
         fail $ concat errs ++ usageInfo "x" options
   (branch, commithash) <- liftIO $ (resolveRef "HEAD") >>= forceError
-  printLog opts commithash
+  redirectThroughPager $ printLog opts commithash
 
 commands = [
     ("cat",  cmdCat)

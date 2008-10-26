@@ -1,17 +1,41 @@
 
--- XXX this doesn't work because I don't really know what I'm doing.
--- I want to pipe my own stdout to less with some args.
--- I think the right way to go is use System.Posix.Process, rather than
--- the higher-level System.Process I'm using here, to be able to dup2 in
--- the child process.
-redirectThroughLess :: IO ()
-redirectThroughLess = do
-  (rd, wr) <- createPipe
-  --dupTo 0 rd
-  dupTo 1 wr
-  pipeIn <- fdToHandle rd
-  lesspid <- runProcess "less" [] --["-F", "-R", "-S", "-X"]
-                        Nothing Nothing
-                        (Just pipeIn) Nothing Nothing
-  return ()
+module Pager (
+  redirectThroughPager
+) where
 
+import Control.Monad.Trans
+import System.IO
+import System.Posix.IO
+import System.Posix.Process
+import System.Posix.Types
+
+-- | Run an IO action with its output paged through less.
+-- stdout is hosed after this point, so it's best to wrap your entire
+-- program with redirectThroughLess.
+redirectThroughPager :: MonadIO m => m a -> m a
+redirectThroughPager action = do
+  pid <- liftIO $ do
+    (rd, wr) <- createPipe
+    pid <- forkProcess $ do
+      dupTo rd 0
+      closeFd rd
+      closeFd wr
+      executeFile "less" True ["-FRSX"] Nothing
+
+    closeFd rd
+    dupTo wr 1
+    closeFd wr
+    return pid
+
+  result <- action
+
+  liftIO $ do
+    hFlush stdout
+    closeFd 1
+
+    getProcessStatus {- hang -} True {- untraced -} False pid
+    return result
+
+test = do
+  redirectThroughPager $ do
+    mapM_ (\x -> print ("line", x)) [1..100]
