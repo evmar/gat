@@ -2,7 +2,8 @@
 -- and the working copy; running the diff commands and coloring the output;
 -- hashing on-disk files.
 module Diff (
-    diffAgainstIndex
+    DiffPair
+  , diffAgainstIndex
   , diffAgainstTree
   , diffTrees
   , showDiff

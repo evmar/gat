@@ -1,3 +1,4 @@
+-- | Git commit object format parser and datatype.
 module Commit (
     Commit(..)
   , parseCommit
@@ -18,12 +19,13 @@ import Shared
 --   Parse author/committter properly.
 --   Parse other fields (?).
 
+-- | A single git commit.
 data Commit = Commit {
-    commit_tree      :: String
-  , commit_parents   :: [String]
-  , commit_author    :: String
-  , commit_committer :: String
-  , commit_message   :: B.ByteString
+    commit_tree      :: String    -- ^ Hash of this commit's tree object.
+  , commit_parents   :: [String]  -- ^ Hash of this commit's parents.
+  , commit_author    :: String    -- ^ Author of the commit.
+  , commit_committer :: String    -- ^ Committer of the commit.
+  , commit_message   :: B.ByteString  -- ^ Message associated with the commit.
 } deriving Show
 emptyCommit :: Commit
 emptyCommit = Commit [] [] [] [] B.empty
@@ -35,8 +37,8 @@ bsBreakAround char str =
   let (before, after) = B.break (== BI.c2w char) str
   in (before, B.tail after)
 
--- Search a ByteString for a substring, returning its offset.
--- Warning: naive search.
+-- | Search a ByteString for a substring, returning its offset.
+-- Warning: naive search.  (Exposed for testing.)
 searchBS :: B.ByteString -> B.ByteString -> Maybe Int
 searchBS needle str = tryNext str where
   firstChar = B.head needle
@@ -49,7 +51,7 @@ searchBS needle str = tryNext str where
         ofs' <- tryNext (B.drop 1 substr)
         return (ofs + 1 + ofs')
 
--- Parse a raw commit object from the datastore into a commit.
+-- | Parse a raw commit object bytes into a Commit.
 parseCommit :: B.ByteString -> Either String Commit
 parseCommit input = commit where
   commit = do

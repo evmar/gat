@@ -1,4 +1,8 @@
-module Log where
+-- | \"git log\"-like commit history output.
+module Log (
+    LogOptions(..), defaultLogOptions
+  , printLog
+) where
 
 import qualified Data.ByteString as B
 import Data.List
@@ -18,7 +22,7 @@ data LogOptions = LogOptions {
 -- | Default LogOptions settings.
 defaultLogOptions = LogOptions (-1)
 
--- | Driver for "gat log" -- display a log with various options set.
+-- | Driver for \"gat log\" -- display a log with various options set.
 printLog :: LogOptions -> Hash -> GitM ()
 printLog (LogOptions {logoptions_commitLimit=0}) hash = return ()
 printLog opts hash = do
