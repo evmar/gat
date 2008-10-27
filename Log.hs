@@ -15,26 +15,31 @@ import ObjectStore
 import Shared
 import State
 
--- | Options for showLog.  Mostly a proof of concept for now.
+-- | Options for printLog.
 data LogOptions = LogOptions {
-    logoptions_commitLimit :: Int
+    logoptions_limit :: Int              -- ^ Number of commits to show.
+  , logoptions_filter :: Commit -> Bool  -- ^ Show only commits passing a test.
 }
 -- | Default LogOptions settings.
-defaultLogOptions = LogOptions (-1)
+defaultLogOptions = LogOptions (-1) (const True)
 
 -- | Driver for \"gat log\" -- display a log with various options set.
 printLog :: LogOptions -> Hash -> GitM ()
-printLog (LogOptions {logoptions_commitLimit=0}) hash = return ()
+printLog (LogOptions {logoptions_limit=0}) hash = return ()
 printLog opts hash = do
   commit <- getObject hash
-  case commit of
-    ObCommit commit -> do
-      let opts' = opts { logoptions_commitLimit=logoptions_commitLimit opts - 1 }
-      liftIO $ printCommit hash commit
-      case commit_parents commit of
-        (parent:_) -> printLog opts' (Hash (fromHex parent))
-        _ -> return ()
-    _ -> fail $ "hash " ++ hashAsHex hash ++ " not a commit?"
+  commit <- case commit of
+              ObCommit commit -> return commit
+              _ -> fail $ "hash " ++ hashAsHex hash ++ " not a commit?"
+  opts' <-
+    if logoptions_filter opts commit
+      then do
+        liftIO $ printCommit hash commit
+        return $ opts { logoptions_limit=logoptions_limit opts - 1 }
+      else return opts
+  case commit_parents commit of
+    (parent:_) -> printLog opts' (Hash (fromHex parent))
+    _ -> return ()
 
 -- | Pring a single Commit in a form similar to "git log".
 printCommit :: Hash -> Commit -> IO ()

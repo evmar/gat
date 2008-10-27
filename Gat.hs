@@ -2,6 +2,7 @@
 import qualified Data.ByteString.Lazy as BL
 import Control.Monad.Error
 import Control.Exception
+import Data.List
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
@@ -102,16 +103,10 @@ cmdDumpPackIndex args = do
 
 cmdLog :: [String] -> GitM ()
 cmdLog args = do
-  let options = [
-        Option "n" []
-          (ReqArg (\n opts -> opts { logoptions_commitLimit=(read n) }) "LIMIT")
-          "limit number of commits to show"
-        ]
   (opts, args) <-
     case getOpt Permute options args of
       (o, a, []) -> return (foldl (flip id) defaultLogOptions o, a)
-      (_, _,  errs) ->
-        fail $ concat errs ++ usageInfo "x" options
+      (_, _, errs) -> fail $ concat errs ++ usageInfo "x" options
   commithash <- do
     commitish <- case args of
       [x] -> return x
@@ -119,6 +114,18 @@ cmdLog args = do
       _ -> fail "expects zero or one arg"
     resolveRev commitish >>= forceError
   redirectThroughPager $ printLog opts commithash
+  where
+    options = [
+        Option "n" ["limit"]
+        (ReqArg (\n opts -> opts { logoptions_limit=(read n) }) "LIMIT")
+        "limit number of commits to show"
+      , Option "" ["author"]
+        (ReqArg (\author opts -> opts { logoptions_filter=authorFilter author })
+         "AUTHOR")
+        "show only commits by particular author"
+      ]
+    authorFilter author commit =
+      author `isInfixOf` commit_author commit
 
 commands = [
     ("cat",  cmdCat)
