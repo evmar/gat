@@ -20,7 +20,7 @@ redirectThroughPager action = do
       dupTo rd 0
       closeFd rd
       closeFd wr
-      executeFile "less" True ["-FRSX"] Nothing
+      executeFile "less" True ["-FRX"] Nothing
 
     closeFd rd
     dupTo wr 1
