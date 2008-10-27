@@ -1,4 +1,5 @@
-
+-- | A simple module for making our output paged, by cheating and just spawning
+-- less.
 module Pager (
   redirectThroughPager
 ) where
