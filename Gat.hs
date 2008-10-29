@@ -32,16 +32,12 @@ cmdRef args = do
 
 cmdCat :: [String] -> GitM ()
 cmdCat args = do
-  let options = [
-        Option "" ["raw"] (NoArg True) "dump raw object bytes"
-        ]
   (raw, name) <-
     case getOpt Permute options args of
       (opts, [name], []) -> return (not (null opts), name)
       (_,    _,      []) ->
         fail "expect 1 argument: name of object to cat"
-      (_,    _,    errs) ->
-        fail $ concat errs ++ usageInfo "x" options
+      (_,    _,    errs) -> fail $ concat errs ++ usage
   hash <- resolveRev name
   case hash of
     Left err -> fail err
@@ -51,6 +47,11 @@ cmdCat args = do
           (typ, obj) <- getRawObject hash
           redirectThroughPager $ liftIO $ BL.putStr obj
         else getObject hash >>= redirectThroughPager . liftIO . print
+  where
+    usage = usageInfo "gat cat [options] <object name>" options
+    options = [
+      Option "" ["raw"] (NoArg True) "dump raw object bytes"
+      ]
 
 cmdDumpIndex :: [String] -> GitM ()
 cmdDumpIndex args = liftIO $ do
@@ -106,7 +107,7 @@ cmdLog args = do
   (opts, args) <-
     case getOpt Permute options args of
       (o, a, []) -> return (foldl (flip id) defaultLogOptions o, a)
-      (_, _, errs) -> fail $ concat errs ++ usageInfo "x" options
+      (_, _, errs) -> fail $ concat errs ++ usage
   commithash <- do
     commitish <- case args of
       [x] -> return x
@@ -115,6 +116,7 @@ cmdLog args = do
     resolveRev commitish >>= forceError
   redirectThroughPager $ printLog opts commithash
   where
+    usage = usageInfo "gat log [options] [startpoint]" options
     options = [
         Option "n" ["limit"]
         (ReqArg (\n opts -> opts { logoptions_limit=(read n) }) "LIMIT")
