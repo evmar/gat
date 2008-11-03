@@ -103,7 +103,7 @@ getRawObject hash = do
       obj <- liftIO $ getLooseObject (objectPath hash)
       case obj of
         Just obj -> return obj
-        Nothing -> fail "can't find object"
+        Nothing -> fail $ "can't find object: " ++ hashAsHex hash
 
 -- |Fetch an object, from both the objects/../ dirs and one pack file.
 -- TODO: multiple pack files, alternates, etc.
