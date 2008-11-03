@@ -88,5 +88,5 @@ printFileList commit parent = do
     forM_ diff $ \(left, right) -> do
       if di_path left == di_path right
         then putStrLn $ "M\t" ++ di_path left
-        else fail $ "something funky with " ++ di_path left
+        else fail $ "something funky with " ++ show (di_path left, di_path right)
     putStrLn ""
