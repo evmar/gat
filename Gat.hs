@@ -125,6 +125,9 @@ cmdLog args = do
         (ReqArg (\author opts -> opts { logoptions_filter=authorFilter author })
          "AUTHOR")
         "show only commits by particular author"
+      , Option "l" ["name-status"]
+        (NoArg (\opts -> opts { logoptions_filelist=True }))
+        "show files changed in each commit"
       ]
     authorFilter author commit =
       author `isInfixOf` commit_author commit
