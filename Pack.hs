@@ -87,28 +87,26 @@ getPackEntry pack offset = do
   let entry_raw = B.drop (fromIntegral offset) mmap
   (Right (typint, size), rest) <- return $ runGet readObjectHeader entry_raw
   let body = B.take (fromIntegral size + 10000) rest
-  case decodePackObjectType typint of
-    Left error -> fail error
-    Right (PackSimple typ) -> do
-      -- We rely on zlib to know when to stop decompressing.
+  typ <- forceError $ decodePackObjectType typint
+  case typ of
+    PackSimple typ -> do
+      -- Object data inline.  We rely on zlib to know when to stop decompressing.
       -- XXX does passing it the remainder of the buffer cause the mmap to
       -- read in the remainder of the file?
       let expanded = decompress (BL.fromChunks [body])
       return (pack, (typ, expanded))
-    Right PackOfsDelta -> do
-      -- Get the offset to the delta base.
+    PackOfsDelta -> do
+      -- A delta against another object in this pack file, given its offset.
       (Right refoffset, compressed) <- return $ runGet readDeltaOffset rest
-      -- Read the delta out of this object.
-      (Right delta, _) <- return $ runGet readDelta (decompressStrict compressed)
-      -- Read the base object.
-      (pack, (basetype, baseraw)) <- getPackEntry pack (offset - refoffset)
-      -- Apply the delta.
-      let result = applyDelta (strictifyBS baseraw) delta
-      unless (BL.length result == (fromIntegral $ d_resultSize delta)) $
-        fail $ printf "error applying delta: expected %d, got %d bytes"
-                      (d_resultSize delta) (BL.length result)
-      return (pack, (basetype, result))
-    Right x -> fail $ "complicated object type: " ++ show x  -- XXX handle these.
+      readApplyDelta pack compressed (offset - refoffset)
+    PackRefDelta -> do
+      -- A delta against another object in this pack file, given its hash.
+      (Right hash, compressed) <- return $ runGet (getByteString 20) rest
+      (pack, ofs) <- findInPackIndex pack (Hash hash)
+      case ofs of
+        Nothing -> fail "base object not found"
+        Just ofs -> do
+          readApplyDelta pack compressed ofs
   where
     readObjectHeader :: Get (Int, Word32)
     readObjectHeader = do
@@ -144,6 +142,20 @@ readDeltaOffset = do
       (msb, bits) <- liftM splitMSB getWord8
       let offset' = ((offset + 1) `shiftL` 7) + fromIntegral bits
       (if msb then overflow else return) offset'
+
+-- Read and apply a delta, given the offset to its base object.
+readApplyDelta :: PackFile -> B.ByteString -> Word32 -> IO (PackFile, RawObject)
+readApplyDelta pack compressed base_offset = do
+  -- Read the delta data.
+  (Right delta, _) <- return $ runGet readDelta (decompressStrict compressed)
+  -- Read the base object.
+  (pack, (basetype, baseraw)) <- getPackEntry pack base_offset
+  -- Apply the delta.
+  let result = applyDelta (strictifyBS baseraw) delta
+  unless (BL.length result == (fromIntegral $ d_resultSize delta)) $
+    fail $ printf "error applying delta: expected %d, got %d bytes"
+                  (d_resultSize delta) (BL.length result)
+  return (pack, (basetype, result))
 
 -- Get the version of a pack index file.
 getIndexVersion = do
