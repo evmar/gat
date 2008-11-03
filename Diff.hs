@@ -43,6 +43,8 @@ data DiffItem = DiffItem {
 -- | A pair of potentially-differing blobs.
 type DiffPair = (DiffItem, DiffItem)
 
+noDiffItem = DiffItem (GitFileRegular False) "/dev/null" (Just emptyHash) False
+
 -- Construct a DiffItem from a path by calling stat().
 diffItemFromStat path = do
   mode <- modeFromPath path
@@ -99,11 +101,27 @@ diffAgainstTree (Tree entries) = do
 -- XXX this is totally broken because it assumes tree filenames line up.
 diffTrees :: Tree -> Tree -> IO [DiffPair]
 diffTrees (Tree e1) (Tree e2) = do
-  filterM pairDiffers (zipWith diffPairFromTrees e1 e2)
+  filterM pairDiffers (compareTrees e1 e2)
   where
-    diffPairFromTrees (mode1,path1,hash1) (mode2,path2,hash2) =
-      (DiffItem mode1 path1 (Just hash1) False,
-       DiffItem mode2 path2 (Just hash2) False)
+    compareTreeEntries :: TreeEntry -> TreeEntry -> (DiffPair, Ordering)
+    compareTreeEntries e1@(mode1,path1,hash1) e2@(mode2,path2,hash2) =
+      case path1 `compare` path2 of
+        LT -> ((diffItem e1, noDiffItem), LT)
+        GT -> ((noDiffItem, diffItem e2), GT)
+        EQ -> ((diffItem e1, diffItem e2), EQ)
+
+    compareTrees :: [TreeEntry] -> [TreeEntry] -> [DiffPair]
+    compareTrees [] [] = []
+    compareTrees t1@(e1:rest1) t2@(e2:rest2) =
+      let (pair, cmp) = compareTreeEntries e1 e2 in
+      pair : case cmp of
+               LT -> compareTrees rest1 t2
+               GT -> compareTrees t1 rest2
+               EQ -> compareTrees rest1 rest2
+    compareTrees es [] = map (\e -> (noDiffItem, diffItem e)) es
+    compareTrees [] es = map (\e -> (diffItem e, noDiffItem)) es
+
+    diffItem (mode,path,hash) = DiffItem mode path (Just hash) False
 
 -- Hash a file as a git-style blob.
 hashFileAsBlob :: FilePath -> IO Hash

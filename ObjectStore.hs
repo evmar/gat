@@ -129,8 +129,6 @@ findTree hash = do
     ObCommit commit -> findTree (Hash (fromHex (commit_tree commit)))
     ObTree tree -> return tree
 
-type TreeEntry = (GitFileMode, FilePath, Hash)
-
 -- Parse a raw tree object's bytes into an Object.
 parseTree :: BL.ByteString -> ErrorOr Tree
 parseTree raw | BL.null raw = return $ Tree []

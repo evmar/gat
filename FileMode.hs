@@ -20,7 +20,7 @@ s_IFLNK = 0o120000
 
 -- |GitFileMode represents git's representation of file modes, which is simpler
 -- than the full Unix user\/group\/etc. file mode.
-data GitFileMode = GitFileRegular Bool
+data GitFileMode = GitFileRegular Bool  -- ^ True for executable.
                  | GitFileDirectory
                  | GitFileSymlink
                  deriving (Eq, Show)

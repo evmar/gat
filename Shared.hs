@@ -4,7 +4,7 @@ module Shared (
   , firstTrue
   , ErrorOr, forceError
   , asHex
-  , Hash(..), hashAsHex
+  , Hash(..), emptyHash, hashAsHex
   , isHashString
   , fromHex
   , splitMSB
@@ -32,6 +32,10 @@ newtype Hash = Hash B.ByteString deriving Eq
 
 instance Show Hash where
   show (Hash bs) = "[Hash " ++ asHex bs ++ "]"
+
+-- | Special magic value for "none such file".
+emptyHash :: Hash
+emptyHash = Hash $ B.pack (replicate 20 0)
 
 -- | Dump a ByteString as a String of hexidecimal characters.
 asHex :: B.ByteString -> String

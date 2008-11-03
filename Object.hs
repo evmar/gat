@@ -5,7 +5,7 @@ module Object (
     ObjectType(..)
   , RawObject
   , Object(..)
-  , Tree(..)
+  , Tree(..), TreeEntry
   , objectTypeFromString
 ) where
 
@@ -32,7 +32,8 @@ data Object = Blob BL.ByteString  -- ^ blob of bytes (a file's contents)
             | ObTree Tree
             deriving Show
 
-data Tree = Tree [(GitFileMode, FilePath, Hash)]
+type TreeEntry = (GitFileMode, FilePath, Hash)
+data Tree = Tree [TreeEntry]
             deriving Show
 
 -- | Convert a String to an ObjectType.
