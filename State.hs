@@ -3,10 +3,12 @@
 module State (
     PackFile(..), PackState(..)
   , GitM, newState, runGit, gets, modify
+  , CaughtMonadIO, gcatch
   , state_pack, putPackState
 ) where
 
 import qualified Data.ByteString as B
+import Control.Exception
 import Control.Monad.State
 
 data GitState = GitState {
@@ -23,6 +25,20 @@ runGit :: GitM a -> IO a
 runGit (GitM st) = do
   (result, state') <- runStateT st newState
   return result
+
+-- The following gnarlyness is just so we can catch exceptions from within
+-- GitM.  Thanks to Oleg for the hints!
+-- http://www.haskell.org/pipermail/haskell/2006-February/017547.html
+class MonadIO m => CaughtMonadIO m where
+  gcatch :: m a -> (Exception -> m a) -> m a
+instance CaughtMonadIO IO where
+  gcatch = Control.Exception.catch
+instance CaughtMonadIO GitM where
+  (GitM m) `gcatch` h =
+    GitM $ StateT $ \s -> runStateT m s
+             `gcatch` \e ->
+               let (GitM st) = h e
+               in runStateT st s
 
 -- | Cached state: all open pack files and their mmaps.
 newtype PackState = PackState (Maybe [PackFile])

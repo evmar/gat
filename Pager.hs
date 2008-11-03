@@ -9,11 +9,12 @@ import System.IO
 import System.Posix.IO
 import System.Posix.Process
 import System.Posix.Types
+import State (CaughtMonadIO, gcatch)
 
 -- | Run an IO action with its output paged through less.
 -- stdout is hosed after this point, so it's best to wrap your entire
 -- program with redirectThroughLess.
-redirectThroughPager :: MonadIO m => m a -> m a
+redirectThroughPager :: CaughtMonadIO m => m () -> m ()
 redirectThroughPager action = do
   pid <- liftIO $ do
     (rd, wr) <- createPipe
@@ -28,14 +29,14 @@ redirectThroughPager action = do
     closeFd wr
     return pid
 
-  result <- action
+  action `gcatch` (\e -> liftIO $ print e >> return ())
 
   liftIO $ do
     hFlush stdout
     closeFd 1
 
     getProcessStatus {- hang -} True {- untraced -} False pid
-    return result
+    return ()
 
 test = do
   redirectThroughPager $ do
