@@ -37,7 +37,7 @@ data PackObjectType = PackSimple ObjectType
                     | PackOfsDelta | PackRefDelta
                     deriving Show
 -- The PackObjectType integer values are encoded in pack files.
-decodePackObjectType :: Word32 -> Either String PackObjectType
+decodePackObjectType :: Int -> Either String PackObjectType
 decodePackObjectType 1 = return $ PackSimple TypeCommit
 decodePackObjectType 2 = return $ PackSimple TypeTree
 decodePackObjectType 3 = return $ PackSimple TypeBlob
@@ -110,21 +110,26 @@ getPackEntry pack offset = do
       return (pack, (basetype, result))
     Right x -> fail $ "complicated object type: " ++ show x  -- XXX handle these.
   where
-    readObjectHeader :: Get (Word32, Word32)
+    readObjectHeader :: Get (Int, Word32)
     readObjectHeader = do
-      flag <- getByteAsWord32
-      let msb = flag `shiftR` 7
-      let typ = fromIntegral $ (flag `shiftR` 4) .&. 0x7
-      let initial_size = flag .&. 0xF
-      size <- if msb == 1
+      -- Object header byte:  XYYYZZZZ, where
+      --   X = variable-length size flag;
+      --   YYY = object type;
+      --   ZZZZ = initial size info.
+      (msb, flags) <- liftM splitMSB getWord8
+      let object_type  = fromIntegral $ flags `shiftR` 4
+      let initial_size = fromIntegral $ flags .&. 0xF
+      size <- if msb
                 then readVariableSize initial_size
                 else return initial_size
-      return (typ, size)
+      return (object_type, size)
+    readVariableSize :: Word32 -> Get Word32
     readVariableSize size = do
-      byte <- getByteAsWord32
-      let size' = size `shiftL` 7 + byte .&. 0x7F
-      let msb = byte `shiftR` 7
-      if msb == 1
+      -- Variable-length size encoding:
+      -- MSB specifies continuation, lower 7 bits are more size bits.
+      (msb, byte) <- liftM splitMSB getWord8
+      let size' = size `shiftL` 7 + fromIntegral byte
+      if msb
         then readVariableSize size'
         else return size'
 
@@ -139,10 +144,6 @@ readDeltaOffset = do
       (msb, bits) <- liftM splitMSB getWord8
       let offset' = ((offset + 1) `shiftL` 7) + fromIntegral bits
       (if msb then overflow else return) offset'
-
--- Get a byte as a Word32.
-getByteAsWord32 :: Get Word32
-getByteAsWord32 = liftM fromIntegral getWord8
 
 -- Get the version of a pack index file.
 getIndexVersion = do
