@@ -23,23 +23,38 @@ data LogOptions = LogOptions {
 -- | Default LogOptions settings.
 defaultLogOptions = LogOptions (-1) (const True)
 
+getCommitOrFail :: Hash -> GitM Commit
+getCommitOrFail hash = do
+  commit <- getObject hash
+  case commit of
+    ObCommit commit -> return commit
+    _ -> fail $ "hash " ++ hashAsHex hash ++ " not a commit?"
+
 -- | Driver for \"gat log\" -- display a log with various options set.
 printLog :: LogOptions -> Hash -> GitM ()
-printLog (LogOptions {logoptions_limit=0}) hash = return ()
 printLog opts hash = do
-  commit <- getObject hash
-  commit <- case commit of
-              ObCommit commit -> return commit
-              _ -> fail $ "hash " ++ hashAsHex hash ++ " not a commit?"
+  commit <- getCommitOrFail hash
+  printLogCommit opts hash commit
+
+printLogCommit :: LogOptions -> Hash -> Commit -> GitM ()
+printLogCommit (LogOptions {logoptions_limit=0}) hash commit = return ()
+printLogCommit opts hash commit = do
+  parent <-
+    case commit_parents commit of
+      (hashstr:_) -> do
+        let hash = Hash (fromHex hashstr)
+        parent <- getCommitOrFail hash
+        return (Just (hash, parent))
+      _ -> return Nothing
   opts' <-
     if logoptions_filter opts commit
       then do
         liftIO $ printCommit hash commit
         return $ opts { logoptions_limit=logoptions_limit opts - 1 }
       else return opts
-  case commit_parents commit of
-    (parent:_) -> printLog opts' (Hash (fromHex parent))
-    _ -> return ()
+  case parent of
+    Nothing -> return ()
+    Just (hash, commit) -> printLogCommit opts' hash commit
 
 -- | Pring a single Commit in a form similar to "git log".
 printCommit :: Hash -> Commit -> IO ()
