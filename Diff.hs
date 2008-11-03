@@ -36,28 +36,25 @@ import State
 -- FilePath, but we can't enforce that.
 data DiffItem = DiffItem {
     di_mode :: GitFileMode
+  , di_path :: FilePath
   , di_hash :: Maybe Hash
-  , di_path :: Maybe FilePath
+  , di_ondisk :: Bool  -- ^ Whether the path refers to an on-disk file.
 } deriving Show
 -- | A pair of potentially-differing blobs.
 type DiffPair = (DiffItem, DiffItem)
 
--- Construct a DiffItem from a mode and either a hash or a path.
-diffItemFromHash mode hash = DiffItem mode (Just hash) Nothing
-diffItemFromPath mode path = DiffItem mode Nothing (Just path)
-
 -- Construct a DiffItem from a path by calling stat().
 diffItemFromStat path = do
   mode <- modeFromPath path
-  return $ diffItemFromPath mode path
+  return $ DiffItem mode path Nothing True
 
 -- Extract the hash field from a DiffItem, lazily filling it in if necessary.
 itemWithHash :: DiffItem -> IO (DiffItem, Hash)
-itemWithHash item@(DiffItem _ (Just hash) _) = return (item, hash)
-itemWithHash (DiffItem mode Nothing (Just path)) = do
-  hash <- hashFileAsBlob path
-  let item = DiffItem mode (Just hash) (Just path)
-  return (item, hash)
+itemWithHash item@(DiffItem _ _ (Just hash) _) = return (item, hash)
+itemWithHash item@(DiffItem _ name Nothing True) = do
+  hash <- hashFileAsBlob name
+  let item' = item { di_hash=Just hash }
+  return (item', hash)
 
 -- Compare cached index info against the result of stat().
 -- Returns True if we think they differ (e.g. the file doesn't match the index).
@@ -80,8 +77,8 @@ diffAgainstIndex index = do
     let changed = statDiffers entry stat
     liftIO $ print (ie_name entry, changed)
     if changed
-      then return $ Just $ (diffItemFromHash (ie_mode entry) (ie_hash entry),
-                            diffItemFromPath (ie_mode entry) (ie_name entry))
+      then return $ Just $ (DiffItem (ie_mode entry) (ie_name entry) (Just (ie_hash entry)) False,
+                            DiffItem (ie_mode entry) (ie_name entry) Nothing True)
       else return Nothing
   let pairs = catMaybes allpairs
   -- Here, git does a bunch of filtering/munging of the list of diffs to
@@ -96,7 +93,7 @@ diffAgainstTree (Tree entries) = do
   where
     diffPairFromTreeEntry (mode,path,hash) = do
       localitem <- diffItemFromStat path
-      return (diffItemFromHash mode hash, localitem)
+      return (DiffItem mode path (Just hash) False, localitem)
 
 -- | Diff one tree against another.
 -- XXX this is totally broken because it assumes tree filenames line up.
@@ -104,8 +101,9 @@ diffTrees :: Tree -> Tree -> IO [DiffPair]
 diffTrees (Tree e1) (Tree e2) = do
   filterM pairDiffers (zipWith diffPairFromTrees e1 e2)
   where
-    diffPairFromTrees (mode1,_,hash1) (mode2,_,hash2) =
-      (diffItemFromHash mode1 hash1, diffItemFromHash mode2 hash2)
+    diffPairFromTrees (mode1,path1,hash1) (mode2,path2,hash2) =
+      (DiffItem mode1 path1 (Just hash1) False,
+       DiffItem mode2 path2 (Just hash2) False)
 
 -- Hash a file as a git-style blob.
 hashFileAsBlob :: FilePath -> IO Hash
@@ -186,7 +184,7 @@ showDiff (item1, item2) = do
     -- Given a DiffItem, run an action over it as file, constructing a
     -- temporary path for the DiffItem if necessary.
     withItemPath :: DiffItem -> (FilePath -> GitM a) -> GitM a
-    withItemPath (DiffItem _ (Just hash) Nothing) action = do
+    withItemPath (DiffItem _ _ (Just hash) False) action = do
       (Blob contents) <- getObject hash
       path <- liftIO $ do
         (path, handle) <- openBinaryTempFile "/tmp" "gat-diff-"
@@ -196,4 +194,4 @@ showDiff (item1, item2) = do
       result <- action path  -- XXX catch error
       liftIO $ removeFile path
       return result
-    withItemPath (DiffItem _ _ (Just path)) action = action path
+    withItemPath (DiffItem _ path _ True) action = action path
