@@ -30,10 +30,7 @@ import ObjectStore
 import Shared
 import State
 
--- | One half of a diff: a thing to be diffed.  If it has a path it refers
--- to an on-disk file; if it only has a hash then it's in the object database.
--- It doesn't make sense to construct a DiffItem with neither a hash nor a
--- FilePath, but we can't enforce that.
+-- | One half of a diff: a file (or blob) to be diffed.
 data DiffItem = DiffItem {
     di_mode :: GitFileMode
   , di_path :: FilePath
