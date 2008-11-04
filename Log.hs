@@ -86,7 +86,12 @@ printFileList commit parent = do
   liftIO $ do
     diff <- diffTrees tree2 tree1
     forM_ diff $ \(left, right) -> do
-      if di_path left == di_path right
-        then putStrLn $ "M\t" ++ di_path left
-        else fail $ "something funky with " ++ show (di_path left, di_path right)
+      case (left, right) of
+        (DiffItem {di_path=l}, DiffItem {di_path=r}) | l == r ->
+          putStrLn $ "M\t" ++ di_path left
+        (DiffItem {di_hash=(Just emptyhash)}, _) ->
+          putStrLn $ "A\t" ++ di_path right
+        (_, DiffItem {di_hash=(Just emptyhash)}) ->
+          putStrLn $ "D\t" ++ di_path left
+        _ -> fail $ "something funky with " ++ show (di_path left, di_path right)
     putStrLn ""
