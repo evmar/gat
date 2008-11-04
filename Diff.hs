@@ -115,8 +115,8 @@ diffTrees (Tree e1) (Tree e2) = do
                LT -> compareTrees rest1 t2
                GT -> compareTrees t1 rest2
                EQ -> compareTrees rest1 rest2
-    compareTrees es [] = map (\e -> (noDiffItem, diffItem e)) es
-    compareTrees [] es = map (\e -> (diffItem e, noDiffItem)) es
+    compareTrees [] es = map (\e -> (noDiffItem, diffItem e)) es
+    compareTrees es [] = map (\e -> (diffItem e, noDiffItem)) es
 
     diffItem (mode,path,hash) = DiffItem mode path (Just hash) False
 
