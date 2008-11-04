@@ -52,10 +52,14 @@ printLogCommit opts hash commit = do
     if logoptions_filter opts commit
       then do
         liftIO $ printCommit hash commit
-        when (logoptions_filelist opts) $
+        when (logoptions_filelist opts) $ do
+          ObTree tree1 <- getObject $ Hash (fromHex (commit_tree commit))
           case parent of
-            Just (_, pcommit) -> printFileList commit pcommit
-            Nothing -> return ()
+            Just (_, pcommit) -> do
+              ObTree tree2 <- getObject $ Hash (fromHex (commit_tree pcommit))
+              liftIO $ printFileList tree1 tree2
+            Nothing ->
+              liftIO $ printFileList tree1 (Tree [])
         return $ opts { logoptions_limit=logoptions_limit opts - 1 }
       else return opts
   case parent of
@@ -79,19 +83,16 @@ printMessage msg = mapM_ printIndentedLine (B.split 10 msg) where
     putStr "    "
     B.putStrLn str
 
-printFileList :: Commit -> Commit -> GitM ()
-printFileList commit parent = do
-  ObTree tree1 <- getObject $ Hash (fromHex (commit_tree commit))
-  ObTree tree2 <- getObject $ Hash (fromHex (commit_tree parent))
-  liftIO $ do
-    diff <- diffTrees tree2 tree1
-    forM_ diff $ \(left, right) -> do
-      case (left, right) of
-        (DiffItem {di_path=l}, DiffItem {di_path=r}) | l == r ->
-          putStrLn $ "M\t" ++ di_path left
-        (DiffItem {di_hash=(Just emptyhash)}, _) ->
-          putStrLn $ "A\t" ++ di_path right
-        (_, DiffItem {di_hash=(Just emptyhash)}) ->
-          putStrLn $ "D\t" ++ di_path left
-        _ -> fail $ "something funky with " ++ show (di_path left, di_path right)
-    putStrLn ""
+printFileList :: Tree -> Tree -> IO ()
+printFileList tree1 tree2 = do
+  diff <- diffTrees tree2 tree1
+  forM_ diff $ \(left, right) -> do
+    case (left, right) of
+      (DiffItem {di_path=l}, DiffItem {di_path=r}) | l == r ->
+        putStrLn $ "M\t" ++ di_path left
+      (DiffItem {di_hash=(Just emptyhash)}, _) ->
+        putStrLn $ "A\t" ++ di_path right
+      (_, DiffItem {di_hash=(Just emptyhash)}) ->
+        putStrLn $ "D\t" ++ di_path left
+      _ -> fail $ "something funky with " ++ show (di_path left, di_path right)
+  putStrLn ""
